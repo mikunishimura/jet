@@ -20,7 +20,9 @@ export const TIERS = [
   { id: 2, roman: 'II',  name: 'SCRAMJET',     speed: 260 * SPEED_SCALE, tolerance: 10,       hold: 0.5, turbulence: 0.006, yawRate: 0.95 },
   { id: 3, roman: 'III', name: 'ORBITAL',      speed: 400 * SPEED_SCALE, tolerance: 4.5,      hold: 2.0, turbulence: 0.012, yawRate: 0.85 },
   { id: 4, roman: 'IV',  name: 'ESCAPE',       speed: 620 * SPEED_SCALE, tolerance: 1.8,      hold: 2.6, turbulence: 0.020, yawRate: 0.74 },
-  { id: 5, roman: 'V',   name: 'INTERSTELLAR', speed: 950 * SPEED_SCALE, tolerance: 0.4,      hold: 3.2, turbulence: 0.022, yawRate: 0.62 },
+  // V: same window as IV, a shorter hold, and a slip only bleeds the charge
+  // slowly (missDecay), so dodging one rock doesn't restart the barrier.
+  { id: 5, roman: 'V',   name: 'INTERSTELLAR', speed: 950 * SPEED_SCALE, tolerance: 1.8,      hold: 2.2, turbulence: 0.020, yawRate: 0.62, missDecay: 0.6 },
 ];
 
 /** Feel intensity of a tier on the original 1..5 scale, independent of how many
@@ -141,6 +143,9 @@ export const PATH = {
 
 // Mouse look / aim. The mouse never steers the jet: it aims the camera and
 // the guns. Aim is an offset relative to the jet's flight direction.
+// Player airframe skins (built in render/skins.js). The first one is the default.
+export const SKIN_IDS = ['b2-spirit', 'lab-interceptor'];
+
 export const AIM = {
   sensitivity: 0.0022,      // rad per mouse pixel
   invertY: false,

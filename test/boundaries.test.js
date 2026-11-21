@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Player } from '../src/game/Player.js';
-import { JetModel, HARDPOINTS } from '../src/render/JetModel.js';
+import { JetModel } from '../src/render/JetModel.js';
+import { SKIN_IDS } from '../src/config.js';
 import { curveRadius, updateCurvature, curveDrop } from '../src/render/curvature.js';
 import { FLIGHT, DEG } from '../src/config.js';
 
@@ -35,17 +36,19 @@ test('resting on the floor while holding dive: no downward velocity, no scrape s
   assert.equal(p.health, 100);
 });
 
-test('gun hardpoints sit on the airframe at any heading/pitch (left gun on the left)', () => {
+test('gun hardpoints follow the airframe at any heading/pitch, for every skin (left gun on the left)', () => {
   const jet = new JetModel(new THREE.Scene());
-  for (const [h, pitch] of [[0, 0], [1.2, 0.3], [-2.5, -0.4], [Math.PI, 0.1]]) {
-    const p = new Player(() => {});
-    p.heading = h; p.pitch = pitch; p.pos.set(100, 500, -40); p.updateBasis();
-    const L = jet.hardpoint(HARDPOINTS.gun[0], p), R = jet.hardpoint(HARDPOINTS.gun[1], p);
-    for (const [hp, w] of [[L, HARDPOINTS.gun[0]], [R, HARDPOINTS.gun[1]]]) {
-      assert.ok(Math.abs(hp.distanceTo(p.pos) - w.length()) < 1e-6, 'rigid offset');
+  for (const skin of SKIN_IDS) {
+    jet.setSkin(skin);
+    const G = jet.hardpoints.gun;
+    for (const [h, pitch] of [[0, 0], [1.2, 0.3], [-2.5, -0.4], [Math.PI, 0.1]]) {
+      const p = new Player(() => {});
+      p.heading = h; p.pitch = pitch; p.pos.set(100, 500, -40); p.updateBasis();
+      const L = jet.hardpoint(G[0], p), R = jet.hardpoint(G[1], p);
+      for (const [hp, w] of [[L, G[0]], [R, G[1]]]) assert.ok(Math.abs(hp.distanceTo(p.pos) - w.length()) < 1e-6, `${skin}: rigid offset`);
+      const side = R.clone().sub(L).dot(p.right);
+      assert.ok(side > 2, `${skin}: right gun is to the right (${side.toFixed(2)})`);
     }
-    const side = R.clone().sub(L).dot(p.right);
-    assert.ok(side > 6, `right gun is to the right (${side.toFixed(2)})`);
   }
 });
 

@@ -6,7 +6,6 @@
 //             crosshair; with no lock they fly straight down the crosshair.
 import * as THREE from 'three';
 import { WEAPONS, AIM } from '../config.js';
-import { HARDPOINTS } from '../render/JetModel.js';
 
 const _v = new THREE.Vector3();
 const _a = new THREE.Vector3();
@@ -70,7 +69,7 @@ export class Weapons {
 
   /** muzzle on the actual airframe: side -1 = left, +1 = right */
   muzzle(side, kind = 'gun') {
-    const hp = HARDPOINTS[kind][side < 0 ? 0 : 1];
+    const hp = this.game.jet.hardpoints[kind][side < 0 ? 0 : 1]; // from the active skin
     return this.game.jet.hardpoint(hp, this.game.player, new THREE.Vector3());
   }
 

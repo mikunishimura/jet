@@ -1,10 +1,11 @@
 // Player settings: defaults, persistence (localStorage), clamping, change events.
 // Pure (storage is injectable) so it is unit-testable in node.
+import { SKIN_IDS } from '../config.js';
 
 export const DEFAULTS = {
   audio: { muted: false, master: 0.8, engine: 0.8, sfx: 0.9 },
   controls: { sensitivity: 1.0, invertY: false, autoRecenter: true, recenterDelay: 1.6 },
-  view: { camera: 'chase', fovOffset: 0, renderScale: 1.0, showFps: false },
+  view: { camera: 'chase', skin: SKIN_IDS[0], fovOffset: 0, renderScale: 1.0, showFps: false },
   fx: { intensity: 1.0, flashes: true, shake: 1.0, blur: 1.0 },
 };
 
@@ -15,6 +16,7 @@ export const LIMITS = {
   'view.fovOffset': [-15, 15], 'view.renderScale': [0.5, 1.5],
   'fx.intensity': [0, 1], 'fx.shake': [0, 1.5], 'fx.blur': [0, 1],
   'view.camera': ['chase', 'cockpit'],
+  'view.skin': SKIN_IDS,
 };
 
 const KEY = 'jetlab.settings.v1';

@@ -50,8 +50,28 @@ test('pacing for a human-rate pilot: first Mach change <= 1 s; the early barrier
   }
 });
 
-test('without trimming, gusts keep you out of the top tier (rarely reached within 26 s)', () => {
-  let reached = 0;
-  for (let seed = 1; seed <= 20; seed++) if (fly(26, 'none', seed).tier === TOP) reached++;
-  assert.ok(reached <= 5, `hands-off reached the top in ${reached}/20 runs`);
+test('the top barrier is only slightly harder than the one before it', () => {
+  const prev = TIERS[TOP - 2], last = TIERS[TOP - 1];
+  assert.ok(last.tolerance <= prev.tolerance, 'never a wider line than before');
+  assert.ok(last.tolerance >= prev.tolerance * 0.85, `tolerance ${last.tolerance}° vs ${prev.tolerance}°`);
+  assert.ok(last.hold <= prev.hold * 1.15, `hold ${last.hold} s vs ${prev.hold} s`);
+  const gaps = (who) => {
+    const g = [];
+    for (let seed = 1; seed <= 10; seed++) {
+      const { ups } = fly(120, who, seed);
+      if (ups.length >= TOP - 1) g.push([ups[TOP - 3] - ups[TOP - 4], ups[TOP - 2] - ups[TOP - 3]]);
+    }
+    return g;
+  };
+  // a trimming pilot breaks the last barrier about as fast as the previous one
+  const human = gaps('human');
+  assert.equal(human.length, 10);
+  const med = (xs) => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)];
+  const ma = med(human.map(([a]) => a)), mb = med(human.map(([, b]) => b));
+  assert.ok(mb <= ma * 1.25 + 0.2, `human median: ${ma.toFixed(1)} s then ${mb.toFixed(1)} s`);
+  for (const [a, b] of human) assert.ok(b <= a * 3, `human worst case: ${a.toFixed(1)} s then ${b.toFixed(1)} s`);
+  // hands-off, the stronger gusts make it a bit harder, never a wall
+  const none = gaps('none').map(([, b]) => b).sort((x, y) => x - y);
+  assert.ok(none.length >= 8, `hands-off reached the top in ${none.length}/10 runs`);
+  assert.ok(none[Math.floor(none.length / 2)] < 20, `hands-off median ${none[Math.floor(none.length / 2)].toFixed(1)} s`);
 });

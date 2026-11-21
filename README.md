@@ -1,6 +1,6 @@
 # JET//LAB
 
-Infinite procedural POV jet game in three.js. Fly straight to break speed barriers. The first one breaks right after launch; each next one asks for a straighter line than the last, and tier V needs you dead straight. Dodge close to obstacles to charge faster. Survive drones, UFOs and fighters. The score is how long you last and how far from spawn you get.
+Infinite procedural POV jet game in three.js. Fly straight to break speed barriers. The first one breaks right after launch; each next one asks for a straighter line than the last (the top one only slightly more than the one before it). Dodge close to obstacles to charge faster. Survive drones, UFOs and fighters. The score is how long you last and how far from spawn you get.
 
 ```bash
 npm install
@@ -35,7 +35,7 @@ URL flags: `?autopilot` (the bot flies), `?god` (enemy fire does no damage). Con
 | II | Scramjet | 5.2 km/s | 28 | ±10° | 0.5 s (automatic right after launch) |
 | III | Orbital | 8.0 km/s | 43 | ±4.5° | 2.0 s |
 | IV | Escape | 12.4 km/s | 66 | ±1.8° | 2.6 s |
-| V | Interstellar | 19.0 km/s | 101 | ±0.4° | 3.2 s |
+| V | Interstellar | 19.0 km/s | 101 | ±1.8° | 2.2 s (slips forgiven) |
 
 The first Mach change comes about 0.5 s after launch. `tierLevel()` maps any tier count onto a 1–5 intensity for the systems that scale with speed (view distance, crash damage, buffet, fog, flames, audio pitch); with five tiers it is the tier itself.
 
@@ -63,6 +63,15 @@ A terminal-style settings window: **O**, the `[ settings ]` buttons on the menu 
 - **Effects:** *flashes & inversion* (turn off for a photosensitivity-safe mode: no color inversion anywhere, white flashes dimmed), screen-effect intensity, camera shake, speed blur.
 
 Adding a setting takes a default in `DEFAULTS` plus one row in `SCHEMA` (`src/ui/SettingsPanel.js`), applied in `Game.applySettings()`.
+
+## Skins
+
+Pick your airframe in **settings → hangar** (swaps live, remembered). Skins are defined in `src/render/skins.js`. Each one builds its geometry and returns its exhaust flames, contrail nozzles and gun/missile hardpoints, so weapons always fire from the right spots.
+
+- **Northrop B-2 Spirit** (default): one smooth lofted flying-wing surface. Every edge runs parallel to one of the two leading edges, as on the real aircraft: constant-chord outer wings, angled wingtip cuts and the double-W sawtooth trailing edge. The center body and engine fairings blend in, with flush cockpit windows, top intakes and exhaust trenches. Guns sit on the wing leading edges, missiles come from the bomb bays.
+- **Lab Interceptor**: the original white delta.
+
+Add a skin by adding an entry to `SKINS` and its id to `SKIN_IDS` (`src/config.js`). The first id is the default.
 
 ## Look
 
@@ -123,7 +132,8 @@ src/
     CameraRig.js         chase (default) + cockpit modes; FOV from Mach
     VectorFX.js          wireframe shells / rings (explosions, barrier breaks)
     curvature.js         planet curvature for every world shader (custom + patched built-ins)
-    JetModel.js          third-person airframe, exhaust, contrails
+    JetModel.js          third-person airframe transform, exhaust, contrails, live skin swap
+    skins.js             airframe skins (B-2 Spirit, Lab Interceptor)
     Cockpit.js, SpeedLines.js, Particles.js, materials.js
   combat/                Projectiles (tracers, missiles, plasma), Weapons (lock + aimbot)
   enemies/               Ufo, Drone, Fighter: flown in the player's frame, climb over terrain

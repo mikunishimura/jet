@@ -103,7 +103,7 @@ export class SpeedSystem {
           events.push({ type: 'tierUp', tier: this.tier });
         }
       } else if (!this.inWindow) {
-        this.charge = Math.max(0, this.charge - cfg.chargeDecayMiss * dt);
+        this.charge = Math.max(0, this.charge - (next?.missDecay ?? cfg.chargeDecayMiss) * dt);
       } else {
         this.charge = Math.max(0, this.charge - cfg.chargeDecayIdle * dt);
       }

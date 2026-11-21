@@ -147,6 +147,7 @@ export class Game {
     AIM.invertY = v.controls.invertY;
     AIM.recenterDelay = v.controls.autoRecenter ? v.controls.recenterDelay : Infinity;
     if (this.rig.mode !== v.view.camera) this.rig.setMode(v.view.camera);
+    if (this.jet.skinId !== v.view.skin) this.jet.setSkin(v.view.skin);
     FOV.userOffset = v.view.fovOffset;
     const pr = Math.min(devicePixelRatio || 1, 1.5) * v.view.renderScale;
     if (Math.abs(this.renderer.getPixelRatio() - pr) > 1e-3) { this.renderer.setPixelRatio(pr); this.resize(); }

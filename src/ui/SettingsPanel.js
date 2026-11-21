@@ -1,8 +1,14 @@
 // Terminal-style settings window. Built from SCHEMA: add a setting by adding
 // a row here (and its default in core/Settings.js). Changes apply live.
+import { SKINS } from '../render/skins.js';
+import { SKIN_IDS } from '../config.js';
+
 const pct = (v) => `${Math.round(v * 100)}%`;
 
 export const SCHEMA = [
+  { section: 'hangar', items: [
+    { key: 'view.skin', type: 'choice', label: 'airframe', options: SKIN_IDS, labels: Object.fromEntries(SKIN_IDS.map((id) => [id, SKINS[id].name])) },
+  ] },
   { section: 'audio', items: [
     { key: 'audio.muted', type: 'toggle', label: 'mute', hint: 'm' },
     { key: 'audio.master', type: 'range', label: 'master volume', min: 0, max: 1, step: 0.05, fmt: pct },
@@ -53,7 +59,7 @@ export class SettingsPanel {
         let ctl = '';
         if (it.type === 'range') ctl = `<input type="range" data-key="${it.key}" min="${it.min}" max="${it.max}" step="${it.step}">`;
         else if (it.type === 'toggle') ctl = `<button class="inline" data-key="${it.key}" data-type="toggle"></button>`;
-        else if (it.type === 'choice') ctl = it.options.map((o) => `<button class="inline opt" data-key="${it.key}" data-value="${esc(o)}">${esc(o)}</button>`).join('');
+        else if (it.type === 'choice') ctl = it.options.map((o) => `<button class="inline opt" data-key="${it.key}" data-value="${esc(o)}">${esc(it.labels?.[o] ?? o)}</button>`).join('');
         return `<div class="srow"${it.title ? ` title="${esc(it.title)}"` : ''}><span class="slabel">${esc(it.label)}${it.hint ? ` <span class="d">· ${esc(it.hint)}</span>` : ''}</span><span class="sctl">${ctl}</span><span class="sval" data-val="${it.key}"></span></div>`;
       }).join('');
       return `<div class="ssec"><div class="shead"># ${esc(sec.section)}</div>${items}</div>`;
