@@ -1,0 +1,19 @@
+{
+  "name": "jet-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "JET//LAB — infinite procedural hypersonic POV jet game (three.js)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.8"
+  }
+}

@@ -1,0 +1,159 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>shader-style judge</title>
+<style>html,body{margin:0;background:#000}</style>
+<script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import G from './samples/glsl.js';
+import { createAudioDriver } from './samples/audio.js';
+import { HueDirector } from './samples/hue.js';
+import { LAND, envelope, stompScale, landingFrame } from './samples/juice.js';
+import { createInvertQuad, darkGlowMaterial, FEVER, feverFrame } from './samples/fever.js';
+
+const Q0=new URLSearchParams(location.search); const num=(k,d)=>Q0.has(k)?parseFloat(Q0.get(k)):d;
+THREE.ColorManagement.enabled = false;
+{ let a = (num('seed', 1) * 2654435761) >>> 0; Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const errors = [];
+const origErr = console.error;
+console.error = (...a) => { errors.push(a.map(String).join(' ').slice(0, 400)); origErr(...a); };
+
+const W = 324, H = 720, VIEW_H = 10, FLOOR = 2.5;
+const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(W, H); renderer.outputColorSpace = THREE.LinearSRGBColorSpace; document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const aspect = W / H;
+const camera = new THREE.OrthographicCamera(-VIEW_H * aspect / 2, VIEW_H * aspect / 2, VIEW_H / 2, -VIEW_H / 2, 0.1, 100);
+camera.position.set(0, 0, 10);
+
+const frag = (name) => G['common.glsl'] + '\n' + G[name];
+// spectrum texture (32 bands)
+const specData = new Uint8Array(32 * 4);
+const spectrum = new THREE.DataTexture(specData, 32, 1); spectrum.needsUpdate = true;
+
+const bg = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  vertexShader: G['fullscreen.vert'], fragmentShader: frag('background.frag'), depthTest: false, depthWrite: false,
+  uniforms: { uTime: { value: 0 }, uHue: { value: 0 }, uScroll: { value: 0 }, uPulse: { value: 0 }, uInvert: { value: 0 }, uSpectrum: { value: spectrum } },
+}));
+bg.frustumCulled = false; bg.renderOrder = -1e6; scene.add(bg);
+
+// platforms every floor, pastel slabs in the hue
+const platMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const plats = [];
+for (let i = -2; i < 40; i++) {
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.45), platMat);
+  p.position.set(((i * 37) % 5 - 2) * 0.35, i * FLOOR - 1.5, 0); scene.add(p); plats.push(p);
+}
+const hero = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.55), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+scene.add(hero);
+const fxMat = (name, color) => new THREE.ShaderMaterial({
+  vertexShader: G['mesh.vert'], fragmentShader: frag(name), transparent: true, depthWrite: false, depthTest: false,
+  blending: THREE.AdditiveBlending, uniforms: { uColor: { value: new THREE.Vector3(...color) }, uAlpha: { value: 0 } },
+});
+const ring = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), fxMat('ring.frag', [3.0, 0.5, 1.92]));
+const beam = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 14), fxMat('beam.frag', [1.5, 1.4, 1.5]));
+scene.add(ring, beam);
+// ghost digit
+const dc = document.createElement('canvas'); dc.width = 256; dc.height = 384;
+const dctx = dc.getContext('2d'); const dtex = new THREE.CanvasTexture(dc);
+const ghostDigit = new THREE.Mesh(new THREE.PlaneGeometry(6, 9), new THREE.MeshBasicMaterial({ map: dtex, transparent: true, opacity: 0.1, depthWrite: false }));
+scene.add(ghostDigit);
+const setDigit = (n) => { dctx.clearRect(0, 0, 256, 384); dctx.fillStyle = '#fff'; dctx.font = '300 300px sans-serif'; dctx.textAlign = 'center'; dctx.fillText(String(n), 128, 300); dtex.needsUpdate = true; };
+// dark halo (subtractive)
+const haloTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, 'rgba(255,255,255,0.8)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+const halo = new THREE.Sprite(darkGlowMaterial(haloTex)); halo.scale.setScalar(2.2); scene.add(halo);
+const invert = createInvertQuad(); scene.add(invert);
+// whiteout quad (normal blending)
+const wMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthTest: false, depthWrite: false });
+const whiteout = new THREE.Mesh(new THREE.PlaneGeometry(VIEW_H * aspect * 1.2, VIEW_H * 1.2), wMat);
+whiteout.renderOrder = 2e6; whiteout.frustumCulled = false; scene.add(whiteout);
+whiteout.setAmount = (a) => { wMat.opacity = a; whiteout.visible = a > 0; };
+whiteout.setAmount(0);
+
+const composer = new EffectComposer(renderer);
+composer.setPixelRatio(1); composer.setSize(W, H);
+composer.addPass(new RenderPass(scene, camera));
+const swirlPass = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uCenter: { value: new THREE.Vector2(0.5, 0.4) }, uRadius: { value: 0 }, uIntensity: { value: 0 }, uAspect: { value: aspect }, uTime: { value: 0 } },
+  vertexShader: G['mesh.vert'], fragmentShader: G['swirl.frag'],
+});
+composer.addPass(swirlPass);
+const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 0.6, num('rad',0.6), num('th',0.75));
+const Q=new URLSearchParams(location.search);
+if(!Q.has('nobloom')) composer.addPass(bloom); composer.addPass(new OutputPass());
+if(Q.has('nobg')) bg.visible=false; if(Q.has('noplat')) plats.forEach(p=>p.visible=false); if(Q.has('nofx')){ring.visible=beam.visible=ghostDigit.visible=false;}
+
+// synthetic music: 135 BPM kick + pad, through the real audio driver via a fake analyser
+const BPM = 135, SPB = 60 / BPM;
+let simT = 0;
+const fakeAnalyser = { frequencyBinCount: 512, getByteFrequencyData(arr) {
+  const ph = (simT % SPB) / SPB; const kick = Math.exp(-ph * 14);
+  for (let i = 0; i < arr.length; i++) { const f = i / arr.length; arr[i] = Math.min(255, 255 * (0.25 + 0.15 * Math.sin(simT * 3 + i * 0.1)) * (1 - f) + 255 * kick * Math.exp(-f * 6)); }
+} };
+const audio = createAudioDriver(fakeAnalyser, Q0.has('bb') ? { bloomBase: num('bb', 0.3) } : {});
+LAND.bloomKick = num('bk', LAND.bloomKick);
+const hue = new HueDirector(3.75);
+
+// fx bag used by the doc's landingFrame / feverFrame
+const fx = { ring, beam, ghostDigit, bloom, bloomBase: 0.6, camera, cameraX: 0, swirlPass, whiteout, invert, inverted: false, climbFromY: 0, floorHeight: FLOOR };
+
+// timeline (seconds): land at 1.0 (stomp 0.833); fever impact at 3.0; climb 4.1 -> 8.1
+const LAND_T = 1.0, FEVER_T = 3.0, DT = 1 / 30, END = new URLSearchParams(location.search).has('quick') ? 0.8 : 9.0;
+const gl = renderer.getContext();
+const px = new Uint8Array(W * H * 4);
+const samples = [], beats = [], shots = {};
+const SHOT_TIMES = new URLSearchParams(location.search).has('quick') ? [0.8] : [0.80, 0.85, 1.00, 1.05, 1.20, 1.40, 2.85, 3.05, 3.40, 3.70, 4.10, 4.15, 4.60, 5.10];
+let heroY = -1.5 + 0.5, floor = 0;
+
+for (let i = 0; i <= Math.round(END / DT); i++) {
+  const t = i * DT; simT = t;
+  const a = audio.update(t);
+  if (a.beat) beats.push(+t.toFixed(3));
+  bloom.strength = a.bloomStrength; fx.bloomBase = a.bloomStrength;
+  // hero + landing
+  const tl = t - LAND_T, tf = t - FEVER_T;
+  const tStomp = t - (LAND_T - 0.167);
+  if (tStomp >= 0 && tStomp < 0.6) { const [sx, sy] = stompScale(tStomp); hero.scale.set(sx, sy, 1); } else hero.scale.set(1, 1, 1);
+  if (tl >= 0 && !fx.landed) { fx.landed = true; hue.nudge(); setDigit(1); }
+  if (tf >= 0 && !fx.fevered) { fx.fevered = true; hue.nudge(); setDigit(2); ring.position.y = beam.position.y = 2.5 + -1.5 + 0.5; }
+  const landT = tf >= 0 ? tf : tl;
+  if (tf < 0) { ring.position.set(0, -1.0, 0); beam.position.set(0, -1.0, 0); }
+  landingFrame(fx, landT, hue);
+  // fever
+  if (tf >= -0.5) {
+    if (tf < FEVER.climb.start) fx.climbFromY = camera.position.y;
+    feverFrame(fx, tf, a.beat, hue);
+    swirlPass.uniforms.uTime.value = t;
+  }
+  halo.position.set(0, 2.5 - 1.5 + 0.35, 0); halo.visible = tf < 0;
+  if (tf >= FEVER.climb.start) { heroY = camera.position.y - 1.5; const n = Math.floor((camera.position.y) / FLOOR) + 2; if (n !== floor) { floor = n; setDigit(n); } }
+  else heroY = tf >= 0 ? 1.5 : (tl >= 0 ? -0.75 : -0.75 + Math.max(0, 1.2 - t) * 1.5);
+  hero.position.set(0, heroY, 0);
+  ghostDigit.position.set(0, camera.position.y - 0.5, -1);
+  // hue → materials
+  const h = hue.update(DT);
+  bg.material.uniforms.uHue.value = h; bg.material.uniforms.uTime.value = t;
+  bg.material.uniforms.uScroll.value = camera.position.y / VIEW_H; bg.material.uniforms.uPulse.value = a.pulse;
+  const pc = new THREE.Color().setHSL(((h / (2 * Math.PI)) % 1 + 1) % 1, 0.55, 0.78); platMat.color.copy(pc); hero.material.color.copy(pc).offsetHSL(0, 0, 0.1);
+  for (let b = 0; b < 32; b++) specData[b * 4] = Math.round(audio.bands[b] * 255);
+  spectrum.needsUpdate = true;
+  composer.render(DT);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  let y = 0, hx = 0, hy = 0;
+  for (let p = 0; p < px.length; p += 16) {
+    const r = px[p], g = px[p + 1], bb = px[p + 2];
+    y += 0.299 * r + 0.587 * g + 0.114 * bb;
+    const mx = Math.max(r, g, bb), mn = Math.min(r, g, bb), d = mx - mn;
+    if (d > 8) { let hh = mx === r ? ((g - bb) / d) % 6 : mx === g ? (bb - r) / d + 2 : (r - g) / d + 4; hh *= Math.PI / 3; hx += d * Math.cos(hh); hy += d * Math.sin(hh); }
+  }
+  samples.push({ t: +t.toFixed(3), Y: +(y / (px.length / 16)).toFixed(1), hue: +(((Math.atan2(hy, hx) * 180 / Math.PI) + 360) % 360).toFixed(0) });
+  if (SHOT_TIMES.some((s) => Math.abs(s - t) < DT / 2)) shots[t.toFixed(2)] = renderer.domElement.toDataURL('image/png');
+}
+window.__result = { errors, samples, beats, shots, programs: renderer.info.programs.length };
+window.__done = true;
+</script></body></html>

@@ -1,0 +1,20 @@
+const { chromium } = require('playwright');
+const fs = require('fs');
+(async () => {
+  const out = process.argv[3];
+  const b = await chromium.launch({ headless: true, args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] });
+  const p = await b.newPage();
+  const logs = [];
+  p.on('console', m => { if (['error', 'warning'].includes(m.type())) logs.push(m.type() + ': ' + m.text().slice(0, 300)); });
+  p.on('pageerror', e => logs.push('pageerror: ' + e.message));
+  await p.goto(process.argv[2]);
+  await p.waitForFunction(() => window.__done === true, null, { timeout: 240000 }).catch(e => logs.push('timeout ' + e.message));
+  const r = await p.evaluate(() => window.__result || {});
+  const gpu = await p.evaluate(() => { const g = document.createElement('canvas').getContext('webgl2'); const d = g.getExtension('WEBGL_debug_renderer_info'); return d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : 'n/a'; });
+  fs.mkdirSync(out, { recursive: true });
+  for (const [t, url] of Object.entries(r.shots || {})) fs.writeFileSync(`${out}/shot_${t}.png`, Buffer.from(url.split(',')[1], 'base64'));
+  delete r.shots;
+  fs.writeFileSync(`${out}/result.json`, JSON.stringify({ ...r, logs, gpu }, null, 1));
+  console.log(JSON.stringify({ gpu, programs: r.programs, errors: r.errors, logs: logs.slice(0, 10), nSamples: (r.samples || []).length, beats: r.beats }));
+  await b.close();
+})();

@@ -1,0 +1,515 @@
+// Orchestrates systems, the frame loop, game state, director, scoring.
+import * as THREE from 'three';
+import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS } from '../config.js';
+import { isMilestone } from '../render/Juice.js';
+import { Input } from '../core/input.js';
+import { World } from '../world/World.js';
+import { PathHazards } from '../world/PathHazards.js';
+import { Ground } from '../world/Ground.js';
+import { Sky } from '../world/Sky.js';
+import { Clouds, DECK_ALTITUDE } from '../world/Clouds.js';
+import { patchTree, updateCurvature } from '../render/curvature.js';
+import { PostFX } from '../render/PostFX.js';
+import { FXDirector } from '../render/FXDirector.js';
+import { CameraRig } from '../render/CameraRig.js';
+import { Cockpit } from '../render/Cockpit.js';
+import { JetModel } from '../render/JetModel.js';
+import { SpeedLines } from '../render/SpeedLines.js';
+import { Particles, explosion, SHAPE } from '../render/Particles.js';
+import { VectorFX } from '../render/VectorFX.js';
+import { Player } from './Player.js';
+import { Projectiles } from '../combat/Projectiles.js';
+import { Weapons } from '../combat/Weapons.js';
+import { EnemyManager } from '../enemies/Enemies.js';
+import { ufoMesh, droneMesh, fighterMesh } from '../enemies/meshes.js';
+import { Pickups } from '../pickups/Pickups.js';
+import { HUD, fmtTime, fmtKm } from '../ui/HUD.js';
+import { Audio } from '../audio/Audio.js';
+import { Autopilot } from './Autopilot.js';
+import { Aim } from './Aim.js';
+
+const BEST_KEY = 'jetlab.best.v1';
+const lerp = (a, b, t) => a + (b - a) * t;
+
+export class Game {
+  constructor(container) {
+    THREE.ColorManagement.enabled = false;
+    const renderer = this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+    renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+    renderer.setSize(innerWidth, innerHeight);
+    container.appendChild(renderer.domElement);
+
+    this.scene = new THREE.Scene();
+    this.scene.fog = new THREE.FogExp2(PALETTE.fog, WORLD.fogDensityBase);
+    this.camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 1, 140000);
+    this.scene.add(this.camera);
+
+    this.input = new Input();
+    this.audio = new Audio();
+    this.world = new World(this.scene, 1);
+    this.syncOutline();
+    this.hazards = new PathHazards(this.world);
+    this.ground = new Ground(this.scene);
+    this.sky = new Sky(this.scene);
+    this.clouds = new Clouds(this.scene);
+    this.post = new PostFX(renderer);
+    this.fx = new FXDirector(this.post);
+    this.rig = new CameraRig(this.camera);
+    this.cockpit = new Cockpit(this.camera);
+    this.jet = new JetModel(this.scene);
+    this.rig.setMode(this.loadCamMode());
+    this.speedLines = new SpeedLines(this.camera);
+    // one glyph system (hard shapes, stepped fade) + vector shells/rings; `add` kept as an alias
+    const glyphs = new Particles(this.scene, 7000);
+    this.particles = { normal: glyphs, add: glyphs, vector: new VectorFX(this.scene, this.camera) };
+    this.player = new Player((type, e) => this.onPlayerEvent(type, e));
+    this.aim = new Aim();
+    // mouse aim: capture the pointer when the player clicks into the game
+    renderer.domElement.addEventListener('mousedown', () => { if (this.state === 'playing') this.input.requestLock(renderer.domElement); });
+    this.projectiles = new Projectiles(this);
+    this.weapons = new Weapons(this);
+    this.enemies = new EnemyManager(this);
+    this.pickups = new Pickups(this);
+    this.hud = new HUD(this);
+    this.autopilot = new Autopilot(this);
+
+    this.best = this.loadBest();
+    this.state = 'menu';
+    this.attract = true;
+    this.useAutopilot = new URLSearchParams(location.search).has('autopilot');
+    this.god = new URLSearchParams(location.search).has('god');
+    this.time = 0; this.frame = 0;
+    this.perf = { fps: 0, frames: 0, acc: 0, worst: 0 };
+    this.reset(Math.floor(Math.random() * 1e9));
+
+    addEventListener('resize', () => this.resize());
+    this.last = performance.now();
+    renderer.info.autoReset = false;
+    this.debug = this.makeDebug();
+    this.warmup();
+    renderer.setAnimationLoop(() => this.loop());
+  }
+
+  /**
+   * Compile every shader variant up front: first-use program compiles cost
+   * 100-300 ms and would otherwise hitch the first enemy wave / missile.
+   */
+  warmup() {
+    const tmp = [ufoMesh(), droneMesh(), fighterMesh()];
+    const p = this.player;
+    const m = this.projectiles.missile('player', p.pos.clone(), p.forward.clone(), null, { life: 0, relSpeed: 1, accel: 0, turnRate: 0, prox: 0, damage: 0, splash: 0, armDelay: 0 });
+    const e = this.projectiles.missile('enemy', p.pos.clone(), p.forward.clone(), null, { life: 0, relSpeed: 1, accel: 0, turnRate: 0, prox: 0, damage: 0, splash: 0, armDelay: 0 });
+    this.projectiles.orb(p.pos.clone(), p.forward.clone(), 0);
+    const pk = this.pickups.spawn('repair');
+    tmp.forEach((t, i) => { t.position.set(p.pos.x + i * 20, p.pos.y, p.pos.z - 60); this.scene.add(t); });
+    patchTree(this.scene); // planet curvature on built-in materials before they compile
+    this.renderer.compile(this.scene, this.camera);
+    this.renderer.setRenderTarget(this.post.target);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.setRenderTarget(null);
+    tmp.forEach((t) => this.scene.remove(t));
+    this.projectiles.reset();
+    this.pickups.reset();
+    void m; void e; void pk;
+  }
+
+  loadCamMode() { try { return localStorage.getItem('jetlab.cam') === 'cockpit' ? 'cockpit' : 'chase'; } catch { return 'chase'; } }
+  toggleCamera() {
+    const mode = this.rig.mode === 'chase' ? 'cockpit' : 'chase';
+    this.rig.setMode(mode);
+    try { localStorage.setItem('jetlab.cam', mode); } catch { /* private mode */ }
+    if (this.state === 'playing') this.hud.toast(mode === 'chase' ? 'CHASE CAMERA' : 'COCKPIT CAMERA');
+  }
+
+  loadBest() { try { return JSON.parse(localStorage.getItem(BEST_KEY)) || {}; } catch { return {}; } }
+  saveBest() { try { localStorage.setItem(BEST_KEY, JSON.stringify(this.best)); } catch { /* private mode */ } }
+
+  reset(seed) {
+    this.seed = seed;
+    this.world.reset(seed);
+    this.hazards.reset();
+    this.difficulty = 0;
+    this.player.reset();
+    this.aim?.reset();
+    this.player.invincible = this.attract;
+    this.projectiles.reset();
+    this.enemies.reset();
+    this.pickups.reset();
+    this.weapons.reset();
+    this.particles.normal.clear(); this.particles.vector.clear();
+    this.autopilot = new Autopilot(this);
+    this.stats = { time: 0, fromSpawn: 0, kills: 0, killScore: 0, gateScore: 0, gates: 0, nearMisses: 0, missScore: 0, maxTier: 1, milestone: 0 };
+    this.lastMiss = -9;
+    this.director = { wave: DIRECTOR.firstWave, pickup: 14 };
+    this.deathTimer = 0;
+    this.lastBand = 'mid';
+    this.deckSide = -1; // -1 below the cloud deck, +1 above
+    this.rig?.reset();
+    this.world.prewarm(0, 0, 0, -1, 1);
+  }
+
+  start() {
+    this.audio.init();
+    this.attract = false;
+    this.player.invincible = false;
+    this.reset(Math.floor(Math.random() * 1e9));
+    this.state = 'playing';
+    this.input.requestLock(this.renderer.domElement); // still inside the click/keypress activation window
+    document.getElementById('menu').classList.add('hidden');
+    document.getElementById('death').classList.add('hidden');
+    this.hud.show(true);
+  }
+
+  showMenu() {
+    this.input.releaseLock();
+    this.state = 'menu';
+    this.attract = true;
+    this.hud.show(false);
+    document.getElementById('menu').classList.remove('hidden');
+  }
+
+  get score() {
+    const s = this.stats;
+    return Math.round(s.fromSpawn * 0.1 / WORLD_SCALE + s.time * 5 + s.killScore + s.gateScore + s.missScore);
+  }
+
+  /** silhouette rim width is in drawing-buffer pixels */
+  syncOutline() {
+    const u = this.world.materials.outline.uniforms;
+    this.renderer.getDrawingBufferSize(u.uRes.value);
+    u.uWidth.value = 1.6 * this.renderer.getPixelRatio();
+  }
+
+  resize() {
+    this.renderer.setSize(innerWidth, innerHeight);
+    this.syncOutline();
+    this.camera.aspect = innerWidth / innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.post.setSize(innerWidth, innerHeight);
+  }
+
+  // ---------------------------------------------------------------- events
+  onPlayerEvent(type, e) {
+    const p = this.player;
+    if (this.attract && (type === 'damage' || type === 'death')) return;
+    switch (type) {
+      case 'launch':
+        this.audio.launch();
+        if (!this.attract) this.hud.toast('ENGINES ENGAGED', 'info');
+        break;
+      case 'tierUp': {
+        const t = TIERS[e.tier - 1];
+        this.fx.tierUp(e.tier);
+        if (isMilestone(e.tier)) this.audio.boost(e.tier); else this.audio.machPop(e.tier);
+        this.hud.slam(`MACH ${(t.speed * MACH_FACTOR).toFixed(1)}`, `${t.roman} · ${t.name}`);
+        this.stats.maxTier = Math.max(this.stats.maxTier, e.tier);
+        this.vaporRing();
+        break;
+      }
+      case 'tierDown': {
+        const t = TIERS[e.tier - 1];
+        this.fx.tierDown(e.reason);
+        this.audio.tierDown();
+        const why = { brake: 'AIRBRAKE', impact: 'TERRAIN IMPACT' }[e.reason] || '';
+        this.hud.slam(`TIER ${t.roman}`, why, true);
+        break;
+      }
+      case 'damage':
+        this.fx.hurt(e.amount);
+        this.audio.hit(e.amount);
+        if (e.amount >= 10 && e.source !== 'impact') this.hud.toast(`HIT −${Math.round(e.amount)}`, 'danger');
+        break;
+      case 'impact': {
+        this.fx.impact(e.hard);
+        this.audio.impact(e.hard);
+        const f = p.forward, pp = p.pos;
+        const x = pp.x + f.x * 10, y = pp.y - 1, z = pp.z + f.z * 10;
+        // scrape: a few ink glyphs; hard hit: red shell + ring + debris squares
+        this.particles.normal.burst(x, y, z, e.hard ? 26 : 6, (bx, by, bz, k) => ({
+          x: bx, y: by, z: bz, rel: true,
+          vx: (Math.random() - 0.5) * 220, vy: Math.random() * 120, vz: (Math.random() - 0.5) * 220,
+          life: 0.35 + Math.random() * 0.3, size: 2 + Math.random() * 2, color: k % 3 ? 0x15171a : 0xff3b30,
+          shape: k % 2 ? SHAPE.SQUARE : SHAPE.PLUS, drag: 2.5,
+        }));
+        if (e.hard) {
+          this.hud.toast(`${e.tag === 'mountain' ? 'MOUNTAIN' : 'TERRAIN'} IMPACT −${Math.round(e.damage)}`, 'danger');
+          this.particles.vector.shell(x, y, z, 3, 26, 0.4, 0xff3b30);
+          this.particles.vector.ring(x, y, z, 4, 44, 0.3, 0x15171a);
+        }
+        break;
+      }
+      case 'trigger':
+        if (e.type === 'gate') {
+          const s = p.speedSys;
+          if (s.next) s.charge = Math.min(0.98, s.charge + 0.35);
+          this.stats.gateScore += 500;
+          this.fx.gate(++this.stats.gates); this.audio.gate();
+          // shards: pieces of ink thrown up and out of the gate line
+          const f = p.forward, pp = p.pos;
+          this.particles.normal.burst(pp.x + f.x * 14, pp.y + 1, pp.z + f.z * 14, JUICE.gate.shards, (bx, by, bz) => ({
+            x: bx, y: by, z: bz, rel: true,
+            vx: (Math.random() - 0.5) * 260, vy: 60 + Math.random() * 160, vz: (Math.random() - 0.5) * 260,
+            life: 0.5 + Math.random() * 0.4, size: 2.5 + Math.random() * 2.5, color: PALETTE.ink, shape: SHAPE.SQUARE, drag: 2.2,
+          }));
+          if (!this.attract) this.hud.toast('SURVEY GATE +500 · BARRIER +35%', 'good');
+        }
+        break;
+      case 'nearMiss': {
+        // reaction time -> velocity: a close pass charges the barrier, closer = more
+        if (this.time - this.lastMiss < NEAR_MISS.cooldown) break;
+        this.lastMiss = this.time;
+        const s = p.speedSys, [lo, hi] = NEAR_MISS.charge;
+        const add = lo + (hi - lo) * e.closeness;
+        if (s.next) s.charge = Math.min(0.98, s.charge + add);
+        this.stats.nearMisses++;
+        this.stats.missScore += Math.round(100 + 300 * e.closeness);
+        this.fx.nearMiss(e.closeness); this.audio.nearMiss(e.closeness);
+        if (!this.attract) this.hud.toast(`NEAR MISS ${Math.round(e.clearance)} m · BARRIER +${Math.round(add * 100)}%`, 'good');
+        break;
+      }
+      case 'ceiling':
+        if (!this.attract) this.hud.toast(`CONTAINMENT CEILING · ${FLIGHT.ceiling} m`, 'warn');
+        break;
+      case 'death':
+        this.audio.death();
+        explosion(this.particles, p.pos.x, p.pos.y, p.pos.z, 2.2);
+        this.particles.vector.shell(p.pos.x, p.pos.y, p.pos.z, 4, 120, 0.9, 0x15171a, -0.1);
+        this.fx.impact(true); this.fx.hurt(40);
+        p.vel.multiplyScalar(0.35);
+        this.deathTimer = 2.2;
+        this.recordRun(e.source);
+        break;
+    }
+  }
+
+  vaporRing() {
+    // barrier break: concentric vector rings around the jet + a ring of plus glyphs
+    const p = this.player, f = p.forward, r = p.right;
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), f);
+    const v = this.particles.vector;
+    v.ring(p.pos.x, p.pos.y, p.pos.z, 6, 90, 0.45, 0x15171a, 0, q);
+    v.ring(p.pos.x, p.pos.y, p.pos.z, 4, 60, 0.55, 0x15171a, -0.07, q);
+    v.ring(p.pos.x, p.pos.y, p.pos.z, 2, 34, 0.6, 0xff3b30, -0.14, q);
+    for (let i = 0; i < 32; i++) {
+      const a = (i / 32) * Math.PI * 2;
+      const cx = Math.cos(a), cy = Math.sin(a);
+      this.particles.normal.emit({ x: p.pos.x + r.x * cx * 8, y: p.pos.y + cy * 8, z: p.pos.z + r.z * cx * 8, rel: true,
+        vx: r.x * cx * 160, vy: cy * 160, vz: r.z * cx * 160, life: 0.5, size: 2.6, color: 0x15171a, shape: SHAPE.PLUS, drag: 1.2 });
+    }
+  }
+
+  onKill(enemy, cause) {
+    if (this.attract) return;
+    this.stats.kills++;
+    const bonus = cause === 'crash' ? 1.5 : 1;
+    this.stats.killScore += Math.round(enemy.score * bonus * (1 + 0.25 * (this.player.speedSys.level - 1)));
+    this.hud.toast(cause === 'crash' ? `${enemy.name} CRASHED +${Math.round(enemy.score * bonus)}` : `${enemy.name} DOWN +${enemy.score}`, 'good');
+  }
+
+  damagePlayer(amount, source) {
+    if (this.attract || this.god) { if (!this.attract) this.fx.hurt(amount); return; }
+    this.player.takeDamage(amount, source);
+  }
+
+  recordRun(cause) {
+    const s = this.stats, b = this.best;
+    const rec = [];
+    if (s.time > (b.time || 0)) { b.time = s.time; rec.push('LONGEST FLIGHT'); }
+    if (s.fromSpawn > (b.dist || 0)) { b.dist = s.fromSpawn; rec.push('FARTHEST RANGE'); }
+    if (this.score > (b.score || 0)) { b.score = this.score; rec.push('HIGH SCORE'); }
+    this.saveBest();
+    const causeText = { impact: 'TERRAIN COLLISION', missile: 'MISSILE STRIKE', plasma: 'PLASMA BURN', bullet: 'GUNFIRE', ram: 'DRONE RAM' }[cause] || 'AIRFRAME LOST';
+    const $ = (id) => document.getElementById(id);
+    $('d-cause').textContent = causeText.toLowerCase();
+    $('d-time').textContent = fmtTime(s.time);
+    $('d-dist').textContent = `${fmtKm(s.fromSpawn)} km`;
+    $('d-trav').textContent = `${fmtKm(this.player.traveled)} km`;
+    $('d-kills').textContent = s.kills;
+    $('d-tier').textContent = TIERS[s.maxTier - 1].roman;
+    $('d-score').textContent = this.score.toLocaleString('en-US');
+    $('d-records').textContent = rec.length ? `new record · ${rec.join(' · ').toLowerCase()}` : '';
+  }
+
+  // ---------------------------------------------------------------- director
+  runDirector(dt) {
+    if (this.attract || !this.player.alive || !this.player.speedSys.engaged) return;
+    const s = this.stats, D = DIRECTOR;
+    const diff = Math.min(1, s.time / D.rampTime * 0.65 + s.fromSpawn / D.rampDistance * 0.65);
+    this.difficulty = diff;
+    const d = this.director;
+    // radar: flying high brings waves sooner and more of them; low keeps you hidden
+    const band = this.player.band;
+    d.wave -= dt / (band === 'high' ? ALTITUDE.waveIntervalHigh : band === 'low' ? ALTITUDE.waveIntervalLow : 1);
+    const maxE = Math.round(lerp(D.maxEnemiesStart, D.maxEnemiesEnd, diff)) + (band === 'high' ? ALTITUDE.extraEnemiesHigh : 0);
+    if (d.wave <= 0) {
+      if (this.enemies.count < maxE) {
+        const opts = [['drones', 1.0], ['ufo', s.time > 18 ? 0.7 + diff * 0.3 : 0], ['fighters', s.time > 35 ? 0.5 + diff : 0]];
+        let r = Math.random() * opts.reduce((a, o) => a + o[1], 0);
+        let kind = 'drones';
+        for (const [k, w] of opts) { if ((r -= w) <= 0) { kind = k; break; } }
+        this.enemies.spawnWave(kind, diff);
+        d.wave = lerp(D.intervalStart, D.intervalEnd, diff) * (0.8 + Math.random() * 0.4);
+      } else d.wave = 2;
+    }
+    d.pickup -= dt;
+    if (d.pickup <= 0) {
+      const low = this.player.health < 40;
+      const [a, b] = low ? D.pickupIntervalLow : D.pickupInterval;
+      if (this.pickups.list.length < 2 && this.player.health < 100) {
+        if (this.pickups.spawn('repair')) this.hud.toast('REPAIR BEACON DETECTED', 'good');
+      }
+      d.pickup = a + Math.random() * (b - a);
+    }
+  }
+
+  rebaseIfNeeded() {
+    const p = this.player;
+    if (Math.hypot(p.pos.x, p.pos.z) < WORLD.rebaseDistance) return;
+    const dx = p.pos.x, dz = p.pos.z;
+    this.world.rebase(dx, dz);
+    p.pos.x -= dx; p.pos.z -= dz; p.prevPos.x -= dx; p.prevPos.z -= dz;
+    this.enemies.rebase(dx, dz);
+    this.projectiles.rebase(dx, dz);
+    this.pickups.rebase(dx, dz);
+    this.particles.normal.rebase(dx, dz); this.particles.vector.rebase(dx, dz);
+    this.jet.rebase(dx, dz);
+  }
+
+  // ---------------------------------------------------------------- loop
+  loop() {
+    const now = performance.now();
+    const real = Math.min(0.05, (now - this.last) / 1000);
+    this.last = now;
+    this.perfTick(real);
+    const dt = real * this.fx.timeScale;
+    this.time += dt;
+    this.frame++;
+
+    // input & state transitions
+    const inp = this.input;
+    if (this.state === 'menu' && (inp.wasPressed('KeyW') || inp.wasPressed('ArrowUp') || inp.wasPressed('Space'))) this.start();
+    else if (this.state === 'dead' && (inp.wasPressed('KeyR') || inp.wasPressed('Space'))) this.start();
+    if (inp.wasPressed('KeyC')) this.toggleCamera();
+    if (inp.wasPressed('KeyM')) { this.audio.init(); this.audio.master && (this.audio.master.gain.value = this.audio.master.gain.value > 0 ? 0 : 0.55); }
+
+    const ctl = (this.attract || this.useAutopilot) ? this.autopilot.control(dt) : inp.state();
+    const p = this.player;
+    // mouse aim: never touches the trajectory, only camera + weapons
+    if (this.state === 'playing' && !this.attract && !this.useAutopilot && p.alive) this.aim.update(dt, ctl, this.weapons.firing);
+    else this.aim.reset();
+
+    p.update(dt, ctl, this.world);
+    this.rebaseIfNeeded();
+    const ox = this.world.origin.x, oz = this.world.origin.z;
+    const absX = p.pos.x + ox, absZ = p.pos.z + oz;
+    this.world.update(absX, absZ, p.flatForward.x, p.flatForward.z, p.speedSys.tier, this.time);
+    this.hazards.update(dt, p, this.difficulty || 0);
+
+    this.weapons.update(dt, p.alive ? ctl : {});
+    this.enemies.update(dt);
+    this.projectiles.update(dt);
+    this.pickups.update(dt);
+    this.runDirector(dt);
+
+    // altitude band changes
+    if (p.alive && !this.attract && p.speedSys.engaged) {
+      const band = p.band;
+      if (band !== this.lastBand) {
+        if (band === 'high') this.hud.toast('RADAR EXPOSED · MORE HOSTILES', 'danger');
+        else if (band === 'low') this.hud.toast(`GROUND EFFECT · BARRIER ×${ALTITUDE.groundEffectCharge}`, 'good');
+        this.lastBand = band;
+      }
+    }
+    // stats
+    if (p.alive && p.speedSys.engaged && !this.attract) {
+      this.stats.time += dt;
+      this.stats.fromSpawn = Math.hypot(absX, absZ);
+      const step = 5000 * WORLD_SCALE; // milestone rings every 100 km
+      const ms = Math.floor(this.stats.fromSpawn / step);
+      if (ms > this.stats.milestone) { this.stats.milestone = ms; this.hud.toast(`${ms * step / 1000} KM FROM SPAWN`, 'good'); this.audio.milestone(); }
+    }
+    if (this.state === 'playing' && !p.alive) {
+      this.deathTimer -= real;
+      if (this.deathTimer <= 0) { this.state = 'dead'; this.input.releaseLock(); document.getElementById('death').classList.remove('hidden'); }
+    }
+    if (this.attract && !p.alive) this.reset(Math.floor(Math.random() * 1e9));
+
+    // presentation
+    const s = p.speedSys;
+    this.scene.fog.density = WORLD.fogDensityBase + WORLD.fogDensityPerTier * (s.level - 1);
+    this.rig.update(dt, p, this.fx, this.aim);
+    this.camera.updateMatrixWorld();
+    this.fx.update(real, this.time, {
+      speed: s.speed, charge: s.charge, tier: s.tier, hasNext: !!s.next, center: this.jetOnScreen(),
+      lowHealthPulse: p.alive && p.health < 30 && !this.attract ? (0.25 + 0.15 * Math.sin(this.time * 8)) * (1 - p.health / 30) : 0,
+    });
+    const pov = this.rig.mode === 'cockpit';
+    this.cockpit.update(dt, p, this.fx.shake, this.rig.cockpitLocal);
+    this.cockpit.root.visible = p.alive && pov;
+    this.jet.update(dt, p, !pov, this.fx.jetScale);
+    this.speedLines.update(dt, s.speed, s.level, s.charge);
+    const H = this.renderer.getDrawingBufferSize(new THREE.Vector2()).y;
+    this.particles.normal.update(dt, this.camera, this.scene.fog, H, p.vel);
+    this.particles.vector.update(dt, p.vel);
+    this.ground.update(this.camera, this.world.origin, s.speed);
+    this.sky.update(this.camera, this.world.origin, this.time, (s.level - 1) / 4, p.flatForward, s.speed);
+    this.clouds.update(this.camera, this.world.origin, this.time, p.flatForward, s.speed);
+    updateCurvature(this.camera.position.y); // the higher you are, the rounder the world
+    patchTree(this.scene);                   // newly spawned built-in materials get curvature too
+    // punching through the cloud deck
+    const side = p.pos.y > DECK_ALTITUDE ? 1 : -1;
+    if (side !== this.deckSide && p.alive && this.state === 'playing') {
+      this.vaporRing();
+      if (!this.attract) this.hud.toast(side > 0 ? 'above the cloud deck' : 'below the cloud deck');
+    }
+    this.deckSide = side;
+    this.audio.update(s.speed / TIERS[TIERS.length - 1].speed, s.level, s.charge, p.throttle, p.braking, p.alive && s.engaged && !this.attract);
+    if (this.frame % 20 === 0) this.missileWarn();
+    if (this.state !== 'menu') this.hud.update();
+
+    this.renderer.info.reset();
+    this.post.render(this.scene, this.camera, this.time);
+    inp.endFrame();
+  }
+
+  /** The jet's screen position (uv, y up): event effects radiate from it. Cockpit: screen center. */
+  jetOnScreen() {
+    const out = this._jetUv || (this._jetUv = [0.5, 0.5]);
+    out[0] = 0.5; out[1] = 0.5;
+    if (this.rig.mode === 'cockpit' || !this.player.alive) return out;
+    const v = (this._ndc || (this._ndc = new THREE.Vector3())).copy(this.player.pos).project(this.camera);
+    if (v.z < 1) { out[0] = Math.min(1, Math.max(0, v.x * 0.5 + 0.5)); out[1] = Math.min(1, Math.max(0, v.y * 0.5 + 0.5)); }
+    return out;
+  }
+
+  missileWarn() {
+    if (this.attract) return;
+    for (const m of this.projectiles.missiles) if (m.owner === 'enemy' && m.p.distanceTo(this.player.pos) < 1500) { this.audio.missileWarning(); break; }
+  }
+
+  perfTick(dt) {
+    const pf = this.perf;
+    pf.frames++; pf.acc += dt; pf.worst = Math.max(pf.worst, dt);
+    if (pf.acc >= 1) { pf.fps = pf.frames / pf.acc; pf.lastWorst = pf.worst; pf.frames = 0; pf.acc = 0; pf.worst = 0; }
+  }
+
+  makeDebug() {
+    const g = this;
+    return {
+      setTier(n) { const s = g.player.speedSys; s.engaged = true; s.tier = Math.max(1, Math.min(5, n)); s.speed = TIERS[s.tier - 1].speed; g.fx.tierUp(s.tier); },
+      spawn(kind) { g.enemies.spawnWave(kind, 0.5); },
+      gate() { g.onPlayerEvent('trigger', { type: 'gate' }); },
+      pickup() { return !!g.pickups.spawn('repair'); },
+      god(on = true) { g.god = on; },
+      autopilot(on = true) { g.useAutopilot = on; },
+      info() {
+        const i = g.renderer.info;
+        return { fps: +g.perf.fps.toFixed(1), worstMs: +((g.perf.lastWorst || 0) * 1000).toFixed(1), calls: i.render.calls, tris: i.render.triangles,
+          chunks: g.world.chunks.size, pending: g.world.stats.pending, enemies: g.enemies.count, tier: g.player.speedSys.tier,
+          speed: Math.round(g.player.speed), health: Math.round(g.player.health), time: +g.stats.time.toFixed(1), fromSpawn: Math.round(g.stats.fromSpawn),
+          origin: { ...g.world.origin }, state: g.state };
+      },
+    };
+  }
+}

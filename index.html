@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JET//LAB</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath d=%27M8 1 L14 14 L8 11 L2 14Z%27 fill=%27%23ff5a1f%27/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app"></div>
+  <div id="hud" class="hidden">
+    <canvas id="overlay"></canvas>
+    <pre class="hud-tl" id="h-stats"></pre>
+    <pre class="hud-bc" id="h-speed"></pre>
+    <pre class="hud-bl" id="h-hullbox"></pre>
+    <pre class="hud-br" id="h-weapons"></pre>
+    <pre id="log"></pre>
+    <div id="bigtext"><div class="t1"></div><div class="t2"></div></div>
+  </div>
+
+  <div id="menu" class="screen">
+    <div class="term">
+      <div class="titlebar"><span>~/lab/jet</span><span>experiment-05</span></div>
+      <div class="body">
+        <h1>jet<span>//</span>lab<i class="cursor"></i></h1>
+        <p class="pitch">fly straight to break the barriers. each one asks for a straighter line than the last. tier V needs you dead straight.</p>
+        <pre class="keys"><b>w</b>            tap  launch · level out
+             hold charge the barrier
+<b>a d</b>          bank · taps trim
+<b>space shift</b>  climb / dive · release to level
+<b>s</b>            bleed speed · drop a tier
+<b>mouse</b>        look + aim (never steers the jet)
+<b>lmb</b> / <b>j</b>      minigun at the crosshair
+<b>rmb</b> / <b>k</b>      missile salvo
+<b>q</b> / <b>mmb</b>      recenter the view
+<b>c</b>            chase / cockpit camera</pre>
+        <pre class="notes"># hull caps your top tier, so collect repair beacons
+# head-on hits cost a tier; grazes just nudge you
+# space / shift: climb anywhere between the floor and the 1500 m ceiling
+# fly low (&lt;60 m) for ground effect; above 1000 m the radar finds you</pre>
+        <button id="start">[ press w to launch ]</button>
+        <div class="best" id="menu-best"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="death" class="screen hidden">
+    <div class="term">
+      <div class="titlebar"><span>~/lab/jet</span><span>exit 1</span></div>
+      <div class="body">
+        <h1 class="red">signal lost<i class="cursor"></i></h1>
+        <pre class="dstats">cause      <span id="d-cause"></span>
+survived   <b id="d-time"></b>
+from spawn <b id="d-dist"></b>
+traveled   <span id="d-trav"></span>
+kills      <span id="d-kills"></span>
+top tier   <span id="d-tier"></span>
+score      <b id="d-score"></b></pre>
+        <div id="d-records"></div>
+        <button id="restart">[ r · fly again ]</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
