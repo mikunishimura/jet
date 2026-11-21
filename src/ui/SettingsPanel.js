@@ -16,6 +16,9 @@ export const SCHEMA = [
     { key: 'audio.sfx', type: 'range', label: 'effects', min: 0, max: 1, step: 0.05, fmt: pct },
   ] },
   { section: 'controls', items: [
+    { key: 'controls.autoThrottle', type: 'toggle', label: 'auto-throttle', title: 'on: the jet always flies on and charges the barrier while you fly straight; w a s d = up / left / down / right, b = airbrake. off: w throttle / charge, s brake, space / shift climb / dive' },
+    { key: 'controls.autoFire', type: 'toggle', label: 'auto-fire', title: 'on: the gun, lock-on missiles and flares fire by themselves: you fly and look at enemies. off: left click shoots, hold it to lock, release to fire missiles; f for flares' },
+    { key: 'controls.autoAim', type: 'toggle', label: 'auto-aim', title: 'the gun finds the enemy nearest your crosshair and locks come easier. off: shots go exactly where you aim' },
     { key: 'controls.sensitivity', type: 'range', label: 'mouse sensitivity', min: 0.2, max: 3, step: 0.05, fmt: (v) => `${v.toFixed(2)}×` },
     { key: 'controls.invertY', type: 'toggle', label: 'invert mouse y' },
     { key: 'controls.autoRecenter', type: 'toggle', label: 'auto-recenter view' },

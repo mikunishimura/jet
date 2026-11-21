@@ -2,7 +2,7 @@
 // straight-line ring, rounded red target boxes, off-screen chevrons, pickups,
 // a hairline altimeter. Palette: ink + grays, red only for hostiles/danger.
 import * as THREE from 'three';
-import { TIERS, MACH_FACTOR, DEG, WEAPONS, FLIGHT, ALTITUDE, FLAGS, SPACE, THREATS } from '../config.js';
+import { TIERS, MACH_FACTOR, DEG, WEAPONS, FLIGHT, ALTITUDE, FLAGS, SPACE, THREATS, AIM } from '../config.js';
 import { lockDisplay } from '../combat/Weapons.js';
 import { curveDrop } from '../render/curvature.js';
 import { DECK_ALTITUDE } from '../world/Clouds.js';
@@ -130,15 +130,19 @@ export class HUD {
     const msl = '■'.repeat(w.missiles) + '□'.repeat(WEAPONS.missiles.max - w.missiles);
     const flr = '●'.repeat(cm.charges) + '○'.repeat(THREATS.flares.charges - cm.charges);
     let lock;
-    if (w.holding) {
+    if (AIM.autoFire) {
+      let best = 0; for (const st of w.lockState.values()) if (!st.locked) best = Math.max(best, st.p);
+      lock = best > 0 ? `<span class="r">locking ${Math.round(lockDisplay(best) * 100)}%</span>`
+        : w.primary ? `<span class="d">auto · ${w.primary.name.toLowerCase()} ${Math.round(w.primary.dist)} m</span>` : '<span class="d">auto</span>';
+    } else if (w.holding) {
       const n = w.lockedTargets().length;
       let best = 0; for (const st of w.lockState.values()) if (!st.locked) best = Math.max(best, st.p);
       lock = `<span class="r">${n ? `${n} locked` : 'tracking'}${best > 0 ? ` ${Math.round(lockDisplay(best) * 100)}%` : ''}</span> <span class="d">· release</span>`;
-    } else lock = w.primary ? `<span class="d">hold rmb · ${w.primary.name.toLowerCase()} ${Math.round(w.primary.dist)} m</span>` : '<span class="d">--</span>';
+    } else lock = w.primary ? `<span class="d">hold to lock · ${w.primary.name.toLowerCase()} ${Math.round(w.primary.dist)} m</span>` : '<span class="d">--</span>';
     this.set('weapons',
       `<span class="d">gun  </span>[${w.overheated > 0 ? `<span class="r">${heat}</span>` : heat}]\n` +
       `<span class="d">msl  </span>${msl}\n` +
-      `<span class="d">flr  </span>${cm.charges ? flr : `<span class="r">${flr}</span>`} <span class="d">f</span>\n` +
+      `<span class="d">flr  </span>${cm.charges ? flr : `<span class="r">${flr}</span>`} <span class="d">${AIM.autoFire ? 'auto' : 'f'}</span>\n` +
       `<span class="d">lock </span>${lock}`);
 
     this.drawOverlay();
@@ -204,14 +208,14 @@ export class HUD {
         ctx.globalAlpha = 1;
       }
       // missile trigger held: the lock margin around the crosshair
-      if (w0.holding) {
+      if (w0.holding && w0.detected.length && !AIM.autoFire) {
         ctx.setLineDash([3 * dpr, 4 * dpr]);
-        this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(WEAPONS.lock.margin) * focal, 0, Math.PI * 2); });
+        this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(AIM.autoAim ? WEAPONS.lock.autoMargin : WEAPONS.lock.margin) * focal, 0, Math.PI * 2); });
         ctx.setLineDash([]);
       }
     }
     // hint until the mouse is captured
-    if (g.state === 'playing' && !g.attract && !g.useAutopilot && !g.input.locked) {
+    if (g.state === 'playing' && !g.attract && !g.useAutopilot && !g.input.locked && !g.touch?.enabled) {
       ctx.save(); ctx.textAlign = 'center';
       this.label(ctx, '> click to aim with the mouse', W / 2, H * 0.7, INK2);
       ctx.restore();

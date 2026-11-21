@@ -77,8 +77,9 @@ export class Player {
   /** Stick model shared by both axes: ramp while held, fast return when released. */
   static stick(v, input, dt, ramp, release) {
     if (input !== 0) {
-      if (Math.sign(v) !== input && v !== 0) v += input * dt / release;
-      else v += input * dt / ramp;
+      // ramp toward the input (keys: ±1; analog sticks: anything in between); reversing is fast
+      const rate = Math.sign(v) !== Math.sign(input) && v !== 0 ? 1 / release : 1 / ramp;
+      v = v < input ? Math.min(input, v + rate * dt) : Math.max(input, v - rate * dt);
       return Math.max(-1, Math.min(1, v));
     }
     const d = dt / release;
@@ -113,8 +114,9 @@ export class Player {
     const tier = this.tierDef;
 
     // --- sticks
-    const input = (ctl.right ? 1 : 0) - (ctl.left ? 1 : 0);
-    const vin = (ctl.up ? 1 : 0) - (ctl.down ? 1 : 0);
+    // digital keys, or an analog stick (touch) when the controller provides axes
+    const input = ctl.steerAxis ?? ((ctl.right ? 1 : 0) - (ctl.left ? 1 : 0));
+    const vin = ctl.pitchAxis ?? ((ctl.up ? 1 : 0) - (ctl.down ? 1 : 0));
     if (ctl.throttleTap) { this.steer = 0; this.vstick = 0; this.levelSnap = 0.6; } // W tap: snap straight & level
     this.steer = Player.stick(this.steer, input, dt, FLIGHT.steerRamp, FLIGHT.steerRelease);
     this.vstick = Player.stick(this.vstick, vin, dt, FLIGHT.pitchRamp, FLIGHT.steerRelease);

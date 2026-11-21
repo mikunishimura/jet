@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>JET//LAB</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath d=%27M8 1 L14 14 L8 11 L2 14Z%27 fill=%27%23ff5a1f%27/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -28,20 +30,21 @@
       <div class="body">
         <h1>jet<span>//</span>lab<i class="cursor"></i></h1>
         <p class="pitch">fly straight to break the barriers. each one asks for a straighter line than the last.</p>
-        <pre class="keys"><b>w</b>            tap  launch · level out
-             hold charge the barrier
+        <pre class="keys"><b>w s</b>          climb / dive · release to level
 <b>a d</b>          bank · taps trim
-<b>space shift</b>  climb / dive · release to level
-<b>s</b>            bleed speed · drop a tier
-<b>mouse</b>        look + aim (never steers the jet)
-<b>lmb</b> / <b>j</b>      minigun at the crosshair
-<b>rmb</b> / <b>k</b>      hold: track enemies to lock · release: fire
-<b>f</b>            flares · break an incoming missile (time it late)
+             the throttle is always on: fly straight
+             and the next barrier charges by itself
+<b>b</b>            airbrake · drop a tier
+<b>mouse</b>        look + aim: the jet shoots by itself
+             gun on what you look at · hold your
+             look on one to lock a kill missile
+<b>lmb</b> / <b>j</b>      force the gun (auto-fire off: shoot)
+<b>f</b>            flares (auto-fire drops them for you)
 <b>q</b> / <b>mmb</b>      recenter the view
 <b>c</b>            chase / cockpit camera</pre>
         <pre class="notes"># hull caps your top tier, so collect repair beacons
 # head-on hits cost a tier; grazes just nudge you
-# space / shift: climb from the floor <span id="ceiling-note">past the clouds to the 24 km ceiling</span>
+# w / s: climb from the floor <span id="ceiling-note">past the clouds to the 24 km ceiling</span>
 # fly low (&lt;60 m) for ground effect; above 1000 m the radar finds you</pre>
         <button id="start">[ press w to launch ]</button>
         <button class="ghost open-settings">[ settings · o ]</button>

@@ -1,14 +1,14 @@
 // Player armament + target acquisition ("detection system").
-//   J / LMB : minigun. Heavy rounds at a steady cadence along the CROSSHAIR
-//             (mouse aim): both guns converge on the crosshair ray. Aim assist
-//             leads a target only when it is within AIM.assistCone of the
-//             crosshair. Overheat clears fast.
-//   K / RMB : missiles, HOLD then RELEASE. While held, keep the crosshair on
-//             an enemy (within WEAPONS.lock.margin of it) and a ring charges
-//             around it over WEAPONS.lock.time; then move on to the next one.
-//             Release fires one hypersonic "kill" missile per locked target
-//             (a lock guarantees the kill, almost instantly); with nothing
-//             locked a regular pair flies straight down the crosshair.
+//
+// AUTO-FIRE (AIM.autoFire, default): you fly and look, the jet fights.
+//   * the minigun opens up on any enemy within AIM.autoCone of the crosshair
+//     and in gun range, leading its motion, in bursts that never overheat
+//   * keep looking at an enemy (within lock.autoMargin) for lock.time and the
+//     lock ring fills; on lock a hypersonic kill missile leaves at once
+//   * flares go out on their own when a missile is about to land (Game)
+// MANUAL (setting off): LMB / J hold = gun + lock-on, release = kill missiles;
+//   RMB / K = lock-on without the gun (released empty: a dumbfire pair).
+// LMB / J also forces the gun in auto mode (shoot at nothing in particular).
 import * as THREE from 'three';
 import { WEAPONS, AIM } from '../config.js';
 
@@ -82,7 +82,10 @@ export class Weapons {
     this.assisted = false;  // gun is leading the primary (crosshair close enough)
     this.firing = false;
     this.muzzleSide = 0;
-    this.holding = false;   // missile trigger held (lock-on in progress)
+    this.holding = false;   // trigger held (lock-on in progress)
+    this.missileKey = false; // RMB / K was part of this hold (allows a dumbfire release)
+    this.doomed = new Set(); // auto mode: targets with a kill missile already on the way
+    this.rest = false;       // auto gun: cooling between bursts
     this.lockState.clear();
     this.tickT = 0;
   }
@@ -115,11 +118,26 @@ export class Weapons {
       e.angRadius = Math.atan((e.radius * 1.2) / dv);
       if (ang < WEAPONS.lockCone && d < WEAPONS.lockRange) this.locks.push(e);
     }
-    this.locks.sort((a, b) => (a.lockAngle + a.dist / 8000) - (b.lockAngle + b.dist / 8000));
+    // a target with a kill missile on the way is as good as dead: work on the others first
+    const rank = (e) => e.lockAngle + e.dist / 8000 + (this.doomed?.has(e) ? 10 : 0);
+    this.locks.sort((a, b) => rank(a) - rank(b));
     // sticky primary: keep the current target unless it leaves the cone
-    if (!this.primary || !this.primary.alive || !this.locks.includes(this.primary)) this.primary = this.locks[0] || null;
+    if (!this.primary || !this.primary.alive || !this.locks.includes(this.primary) || (this.doomed?.has(this.primary) && this.locks[0] !== this.primary)) this.primary = this.locks[0] || null;
     else if (this.locks[0] && this.locks[0] !== this.primary && this.locks[0].lockAngle < this.primary.lockAngle * 0.4) this.primary = this.locks[0];
+    // while locking, the gun works on what you're locking, then on what isn't locked yet
+    if (this.holding) {
+      const tr = this.lockState.tracked;
+      if (tr && tr.alive && this.locks.includes(tr)) this.primary = tr;
+      else if (this.primary && this.lockState.get(this.primary)?.locked) this.primary = this.locks.find((e) => !this.lockState.get(e)?.locked) || this.primary;
+    }
     this.assisted = !!this.primary && this.primary.lockAngle < AIM.assistCone;
+  }
+
+  /** fighting right now: the gun is firing, a lock is building, or missiles are leaving */
+  get engaged() {
+    if (this.firing || this.salvoQueue.length) return true;
+    for (const s of this.lockState.values()) if (s.p > 0) return true;
+    return false;
   }
 
   /** a homing missile lost its target: next hard lock, else the best detected one */
@@ -149,7 +167,12 @@ export class Weapons {
     // --- minigun
     if (this.overheated > 0) this.overheated -= dt;
     this.gunCooldown -= dt;
-    this.firing = ctl.gun && this.overheated <= 0;
+    // auto: fire at whatever the auto-aim holds in range, in bursts that rest before overheating
+    const auto = AIM.autoFire;
+    const inRange = this.assisted && this.primary.dist < W.range * 1.05;
+    if (this.heat > 0.88) this.rest = true; else if (this.heat < 0.3) this.rest = false;
+    const autoGun = auto && inRange && !this.rest;
+    this.firing = (ctl.gun || autoGun) && this.overheated <= 0;
     // barrels only cool when you let go of the trigger
     this.sinceFire = this.firing ? 0 : (this.sinceFire || 0) + dt;
     if (this.sinceFire > W.coolDelay) this.heat = Math.max(0, this.heat - W.cool * dt * (this.overheated > 0 ? 1.6 : 1));
@@ -168,9 +191,13 @@ export class Weapons {
       this.reload += dt;
       if (this.reload >= M.reload) { this.reload = 0; this.missiles++; }
     }
-    const hold = !!ctl.missileHold;
+    for (const e of this.doomed) if (!e.alive) this.doomed.delete(e);
+    // auto: always tracking, every completed lock fires at once.
+    // manual: holding the gun (or the missile key) builds locks, releasing fires them.
+    const hold = auto || !!(ctl.gun || ctl.missileHold);
     if (hold) {
-      if (!this.holding) { this.holding = true; this.lockState.clear(); }
+      if (!this.holding) { this.holding = true; this.missileKey = false; this.lockState.clear(); this.lockState.tracked = null; }
+      if (ctl.missileHold) this.missileKey = true;
       this.updateLocks(dt);
     } else if (this.holding) {
       this.holding = false;
@@ -192,22 +219,33 @@ export class Weapons {
     for (const e of this.lockState.keys()) if (!e.alive || e.dist > WEAPONS.lockRange) this.lockState.delete(e);
     const cands = [];
     for (const e of this.detected) {
-      if (e.dist > WEAPONS.lockRange) continue;
+      if (e.dist > WEAPONS.lockRange || this.doomed.has(e)) continue;
       cands.push({ e, err: Math.max(0, e.lockAngle - e.angRadius) });
     }
-    const events = stepLocks(this.lockState, cands, dt, this.missiles, L);
+    const cfg = AIM.autoAim ? { ...L, margin: L.autoMargin } : L;
+    const events = stepLocks(this.lockState, cands, dt, this.missiles, cfg);
     this.tickT -= dt;
     for (const ev of events) {
-      if (ev.type === 'locked') { g.audio.lockOn(); g.hud.toast(`LOCK ${ev.e.name} · ${this.lockedTargets().length}`, 'good'); }
+      if (ev.type === 'locked') {
+        g.audio.lockOn();
+        if (AIM.autoFire && this.missiles > 0) {
+          // auto: the kill missile leaves the moment the lock lands
+          this.lockState.delete(ev.e); this.doomed.add(ev.e);
+          this.salvoQueue.push({ target: ev.e, locked: true }); this.missiles--;
+          if (this.salvoQueue.length === 1) this.salvoTimer = 0;
+          g.hud.toast(`LOCK ${ev.e.name} · KILL MISSILE`, 'good');
+        } else g.hud.toast(`LOCK ${ev.e.name} · ${this.lockedTargets().length}`, 'good');
+      }
       else if (this.tickT <= 0) { this.tickT = 0.16 - 0.1 * ev.p; g.audio.lockTick(lockDisplay(ev.p)); }
     }
   }
 
-  /** trigger released: missiles at every hard lock, or a dumbfire pair */
+  /** trigger released: a kill missile at every hard lock (or a dumbfire pair from RMB / K) */
   release() {
     const g = this.game, M = WEAPONS.missiles;
     const targets = this.lockedTargets();
-    this.lockState.clear();
+    this.lockState.clear(); this.lockState.tracked = null;
+    if (!targets.length && !this.missileKey) return; // a plain gun burst: nothing else to do
     if (this.missiles <= 0) { g.audio.click(); return; }
     if (targets.length) {
       // one kill missile per lock (locks never exceed the missiles you had)

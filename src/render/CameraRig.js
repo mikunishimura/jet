@@ -34,11 +34,21 @@ export class CameraRig {
     this._q1 = new THREE.Quaternion(); this._q2 = new THREE.Quaternion();
     this._e = new THREE.Euler(0, 0, 0, 'YXZ');
   }
-  setMode(mode) { this.mode = mode; this.snap = true; }
+  setMode(mode) { this.mode = mode; this.snap = true; this.lastHeading = null; }
+
+  /**
+   * Aim offsets (yaw, pitch relative to the current view base) that put the
+   * crosshair on world point `pos`. Used by the auto-fire aim magnet.
+   */
+  aimOffsetsFor(pos, player) {
+    const o = this._target.copy(pos).sub(player.pos).sub(this.aimOffset).normalize();
+    let yaw = Math.atan2(-o.x, -o.z) - (this.baseHeading ?? player.heading);
+    yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
+    return { yaw, pitch: Math.asin(Math.max(-1, Math.min(1, o.y))) - (this.basePitch ?? 0) };
+  }
   reset() { this.snap = true; }
 
   update(dt, player, fx, aim = null) {
-    const ay = aim ? aim.yaw : 0, ap = aim ? aim.pitch : 0;
     this.t += dt;
     const cam = this.camera;
     const s = player.speedSys;
@@ -56,9 +66,14 @@ export class CameraRig {
       // follow heading with lag (shortest angle) so turns show the jet yawing
       let dh = player.heading - this.camHeading;
       dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+      const h0 = this.camHeading, p0 = this.camPitch;
       this.camHeading += dh * (1 - Math.exp(-CHASE.yawFollow * dt));
       this.camPitch += (player.pitch * CHASE.pitchShare - this.camPitch) * (1 - Math.exp(-CHASE.pitchFollow * dt));
+      // engaged: the crosshair stays put in the world while the jet maneuvers under it
+      if (aim?.worldLock) aim.hold(this.camHeading - h0, this.camPitch - p0);
       // view = lagged flight direction + instant mouse aim; orbit the jet
+      const ay = aim ? aim.yaw : 0, ap = aim ? aim.pitch : 0;
+      this.baseHeading = this.camHeading; this.basePitch = this.camPitch;
       const vh = this.camHeading + ay;
       const vp = Math.max(-1.35, Math.min(1.35, this.camPitch + ap));
       const ch = Math.cos(vp);
@@ -78,7 +93,12 @@ export class CameraRig {
       const targetRoll = -player.steer * FLIGHT.bankAngle * (0.7 + 0.3 * (s.level / 5));
       this.roll += (targetRoll - this.roll) * (1 - Math.exp(-7 * dt));
       cam.position.set(player.pos.x + sx, player.pos.y + sy + Math.sin(t * 1.3) * 0.6, player.pos.z);
+      const ph0 = this.pitchView, hd0 = this.lastHeading ?? player.heading;
       this.pitchView += (player.pitch - this.pitchView) * (1 - Math.exp(-10 * dt));
+      if (aim?.worldLock) aim.hold(Math.atan2(Math.sin(player.heading - hd0), Math.cos(player.heading - hd0)), this.pitchView - ph0);
+      this.lastHeading = player.heading;
+      const ay = aim ? aim.yaw : 0, ap = aim ? aim.pitch : 0;
+      this.baseHeading = player.heading; this.basePitch = -0.035 + this.pitchView;
       // head look: camera = airframe orientation + aim offset
       const hp = -0.035 + this.pitchView + ap, hh = player.heading + ay;
       this.euler.set(hp + Math.sin(t * 53) * 0.002 * buffet + sy * 0.004, hh + sx * 0.003, this.roll + sr + Math.sin(t * 61) * 0.003 * buffet);

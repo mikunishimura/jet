@@ -123,6 +123,33 @@ test('release: one kill missile per hard lock; nothing locked -> a regular dumbf
   assert.equal(w.lockState.size, 0);
   w.salvoQueue.length = 0;
   w.release();
+  assert.equal(w.salvoQueue.length, 0, 'a plain gun burst (left click) fires no missile');
+  w.missileKey = true; // the hold came from RMB / K
+  w.release();
   assert.equal(w.salvoQueue.length, WEAPONS.lock.dumbfire);
   assert.ok(w.salvoQueue.every((s) => !s.locked && !s.target));
+});
+
+test('auto-fire: flares go out by themselves only when a missile is about to land', () => {
+  const near = incoming(THREATS.autoFlareAt * 0.5), far = incoming(THREATS.autoFlareAt + 2);
+  const g = stubGame([far]);
+  const cm = new Countermeasures(g);
+  cm.update(DT);
+  assert.equal(cm.wantsAutoFlare(), false, 'not yet');
+  g.projectiles.missiles.push(near);
+  cm.update(DT);
+  assert.equal(cm.wantsAutoFlare(), true);
+  cm.charges = 0;
+  assert.equal(cm.wantsAutoFlare(), false, 'nothing to drop');
+});
+
+test('analog sticks (touch): half deflection settles at half bank, keys still go full', async () => {
+  const { Player } = await import('../src/game/Player.js');
+  let v = 0;
+  for (let t = 0; t < 1; t += DT) v = Player.stick(v, 0.5, DT, 0.26, 0.1);
+  assert.ok(Math.abs(v - 0.5) < 1e-9);
+  for (let t = 0; t < 1; t += DT) v = Player.stick(v, 1, DT, 0.26, 0.1);
+  assert.equal(v, 1);
+  for (let t = 0; t < 1; t += DT) v = Player.stick(v, -0.3, DT, 0.26, 0.1);
+  assert.ok(Math.abs(v + 0.3) < 1e-9, 'reverses onto the new deflection');
 });

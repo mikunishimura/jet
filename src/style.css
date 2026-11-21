@@ -88,3 +88,29 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px;
 input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 3px; background: var(--ink); border: none; }
 input[type=range]:disabled { opacity: 0.3; cursor: default; }
 @media (max-width: 760px) { .srow { grid-template-columns: 1fr 1fr 52px; } }
+
+/* ---------- touch: two floating sticks, brake, pause ---------- */
+body.touch, body.touch canvas { touch-action: none; -webkit-touch-callout: none; }
+#touch { position: fixed; inset: 0; z-index: 10; }
+#touch .zone { position: absolute; top: 0; bottom: 0; width: 50%; }
+#touch .zone.left { left: 0; }
+#touch .zone.right { right: 0; }
+.stick-base { position: absolute; width: 112px; height: 112px; margin: -56px 0 0 -56px; border: 1.5px solid rgba(21, 23, 26, 0.35); border-radius: 50%; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.stick-base.on { opacity: 1; }
+.stick-knob { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; background: rgba(21, 23, 26, 0.18); border: 1.5px solid var(--ink); }
+/* resting hint: where the sticks live */
+#touch .zone::after { position: absolute; bottom: 22%; font-size: 11px; color: var(--ink-2); opacity: 0.7; }
+#touch .zone.left::after { content: '◎ fly'; left: 18%; }
+#touch .zone.right::after { content: 'aim ◎'; right: 18%; }
+#touch .tbtn { position: absolute; width: auto; margin: 0; padding: 8px 14px; font-size: 12px; background: rgba(255, 255, 255, 0.75); }
+#touch .tbtn.brake { right: 14px; top: 56px; }
+#touch .tbtn.brake.on { background: var(--ink); color: var(--paper); }
+#touch .tbtn.pause { right: 14px; top: 14px; padding: 6px 12px; }
+#hud.orbit ~ #touch .stick-base { border-color: rgba(255, 255, 255, 0.45); }
+body.touch .keys { display: none; }
+body.touch .pitch::after { content: ' left thumb flies, right thumb aims. the jet shoots by itself.'; }
+@media (max-height: 520px) {
+  .term .body { padding: 12px 14px; }
+  h1 { font-size: 30px; }
+  .notes { display: none; }
+}

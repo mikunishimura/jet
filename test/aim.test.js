@@ -54,3 +54,23 @@ test('mouse look never changes the trajectory', () => {
   };
   assert.deepEqual(run(true), run(false));
 });
+
+test('engaged: the crosshair holds its world direction while the view base turns under it', async () => {
+  const { Aim } = await import('../src/game/Aim.js');
+  const a = new Aim();
+  a.yaw = 0.3; a.pitch = 0.1;
+  a.hold(0.5, -0.05);              // the jet (view base) turned 0.5 rad left, nosed down
+  assert.ok(Math.abs(a.yaw - (-0.2)) < 1e-12 && Math.abs(a.pitch - 0.15) < 1e-12, 'base + offset unchanged');
+  a.hold(10, 0);                   // never past the look limits
+  assert.ok(a.yaw >= -a.cfg.maxYaw - 1e-12);
+});
+
+test('auto-fire magnet: eases toward the target, never while snapping back', async () => {
+  const { Aim } = await import('../src/game/Aim.js');
+  const a = new Aim();
+  for (let i = 0; i < 120; i++) a.pull(0.4, -0.1, 3.2, 1 / 60);
+  assert.ok(Math.abs(a.yaw - 0.4) < 0.02 && Math.abs(a.pitch + 0.1) < 0.01);
+  a.snapping = true; const y = a.yaw;
+  a.pull(0, 0, 3.2, 1 / 60);
+  assert.equal(a.yaw, y);
+});

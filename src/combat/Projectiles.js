@@ -13,11 +13,13 @@
 import * as THREE from 'three';
 import { labMaterial, edgeMaterial } from '../render/materials.js';
 import { PALETTE } from '../config.js';
-import { explosion, sparks, SHAPE } from '../render/Particles.js';
+import { explosion, sparks } from '../render/Particles.js';
 
 const _v = new THREE.Vector3();
 const _d = new THREE.Vector3();
 const _a = new THREE.Vector3();
+const rgba = (hex, a) => { const c = new THREE.Color(hex); return { r: c.r, g: c.g, b: c.b, a }; };
+const PLAYER_TRAIL = rgba(0x5b6168, 0.8), KILL_TRAIL = rgba(0x15171a, 1), ENEMY_TRAIL = rgba(0xff3b30, 0.9);
 
 export class Projectiles {
   constructor(game) {
@@ -34,6 +36,19 @@ export class Projectiles {
     this.tracers.frustumCulled = false;
     this.tracers.renderOrder = 4;
     scene.add(this.tracers);
+
+    // missile trails: thin vector lines tracing each missile's recent path,
+    // fading toward the tail (no smoke: same 1 px language as the contrails)
+    this.TRAIL = 14;                       // points per missile
+    this.maxTrailSegs = 64 * (this.TRAIL - 1);
+    const tg = new THREE.BufferGeometry();
+    this.tPos = new THREE.BufferAttribute(new Float32Array(this.maxTrailSegs * 6), 3).setUsage(THREE.DynamicDrawUsage);
+    this.tCol = new THREE.BufferAttribute(new Float32Array(this.maxTrailSegs * 8), 4).setUsage(THREE.DynamicDrawUsage);
+    tg.setAttribute('position', this.tPos); tg.setAttribute('color', this.tCol);
+    this.trails = new THREE.LineSegments(tg, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, fog: true }));
+    this.trails.frustumCulled = false;
+    this.trails.renderOrder = 4;
+    scene.add(this.trails);
 
     // missiles
     this.missiles = [];
@@ -57,6 +72,7 @@ export class Projectiles {
     for (const m of this.missiles) this.game.scene.remove(m.mesh);
     for (const o of this.orbs) this.game.scene.remove(o.mesh);
     this.missiles.length = 0; this.orbs.length = 0;
+    this.trails.geometry.setDrawRange(0, 0);
   }
 
   /** `vel` is a WORLD velocity (as aimed); stored relative to the player */
@@ -73,7 +89,7 @@ export class Projectiles {
     mesh.position.copy(pos);
     this.game.scene.add(mesh);
     const rv = vel.clone().sub(this.game.player.vel);
-    const m = { owner, mesh, p: mesh.position, rv, target, speed: rv.length(), ...opts, age: 0, born: this.game.frame };
+    const m = { owner, mesh, p: mesh.position, rv, target, speed: rv.length(), ...opts, age: 0, born: this.game.frame, hist: [] };
     this.missiles.push(m);
     return m;
   }
@@ -88,7 +104,7 @@ export class Projectiles {
 
   rebase(dx, dz) {
     for (const b of this.bullets) { b.p.x -= dx; b.p.z -= dz; }
-    for (const m of this.missiles) { m.p.x -= dx; m.p.z -= dz; }
+    for (const m of this.missiles) { m.p.x -= dx; m.p.z -= dz; for (const h of m.hist) { h.x -= dx; h.z -= dz; } }
     for (const o of this.orbs) { o.p.x -= dx; o.p.z -= dz; }
   }
 
@@ -173,14 +189,10 @@ export class Projectiles {
       m.p.x += (pv.x * km + m.rv.x) * dt; m.p.y += (pv.y * km + m.rv.y) * dt; m.p.z += (pv.z * km + m.rv.z) * dt;
       const prev = m.p.clone().addScaledVector(m.rv, -dt);
       m.mesh.lookAt(_v.copy(m.p).sub(m.rv)); // nose is -Z
-      // trail: hollow square dots that stay put in the player's frame
-      if (m.age > (m.kill ? 0.02 : 0.15)) {
-        for (let k = 0; k < 2; k++) {
-          const t = k / 2;
-          fx.normal.emit({ x: prev.x + (m.p.x - prev.x) * t, y: prev.y + (m.p.y - prev.y) * t, z: prev.z + (m.p.z - prev.z) * t, rel: true,
-            life: m.kill ? 0.3 : 0.5, size: m.kill ? 2.6 : 1.8, color: m.kill ? 0x15171a : m.owner === 'player' ? 0x8d939a : 0xff3b30, shape: m.kill ? SHAPE.SQUARE : SHAPE.BOX });
-        }
-      }
+      // trail history: points ride in the player's frame like everything else
+      for (const h of m.hist) { h.x += pv.x * km * dt; h.y += pv.y * km * dt; h.z += pv.z * km * dt; }
+      if (m.hist.length >= this.TRAIL) m.hist.pop();
+      m.hist.unshift(m.p.clone());
       let boom = m.life <= 0 || m.p.y < 1;
       if (!boom && tgtPos && m.p.distanceTo(tgtPos) < m.prox) boom = true;
       if (!boom && m.owner === 'player') {
@@ -189,6 +201,8 @@ export class Projectiles {
       if (!boom && (i & 1) === (g.frame & 1) && this.hitsWorld(m.p)) boom = true;
       if (boom) { this.detonate(m); this.missiles.splice(i, 1); }
     }
+
+    this.drawTrails();
 
     // --- orbs
     for (let i = this.orbs.length - 1; i >= 0; i--) {
@@ -206,6 +220,25 @@ export class Projectiles {
       if (!dead && (i & 1) === (g.frame & 1) && this.hitsWorld(o.p)) { dead = true; explosion(fx, o.p.x, o.p.y, o.p.z, 0.4); }
       if (dead) { g.scene.remove(o.mesh); this.orbs.splice(i, 1); }
     }
+  }
+
+  drawTrails() {
+    const P = this.tPos.array, C = this.tCol.array;
+    let n = 0;
+    for (const m of this.missiles) {
+      const h = m.hist, L = h.length - 1;
+      if (L < 1) continue;
+      const c = m.kill ? KILL_TRAIL : m.owner === 'player' ? PLAYER_TRAIL : ENEMY_TRAIL;
+      for (let i = 0; i < L && n < this.maxTrailSegs; i++, n++) {
+        const a = h[i], b = h[i + 1];
+        P[n * 6] = a.x; P[n * 6 + 1] = a.y; P[n * 6 + 2] = a.z;
+        P[n * 6 + 3] = b.x; P[n * 6 + 4] = b.y; P[n * 6 + 5] = b.z;
+        const fa = (1 - i / L) * c.a, fb = (1 - (i + 1) / L) * c.a;
+        C.set([c.r, c.g, c.b, fa, c.r, c.g, c.b, fb], n * 8);
+      }
+    }
+    this.trails.geometry.setDrawRange(0, n * 2);
+    this.tPos.needsUpdate = this.tCol.needsUpdate = true;
   }
 
   detonate(m) {

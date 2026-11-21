@@ -15,18 +15,21 @@ URL flags: `?autopilot` (the bot flies), `?god` (enemy fire does no damage). Con
 
 | Key | Action |
 |---|---|
-| **W** tap | launch / snap both sticks to center (fly straight and level) |
-| **W** hold | charge the next speed barrier while you hold your line (the first one, tier II, charges by itself right after launch) |
-| **A / D** hold | bank left / right. Short taps trim by fractions of a degree |
-| **S** hold | bleed charge, then drop one tier every 0.75 s (down to I) |
-| **Space** / **Shift** hold | climb / dive (also **↑ / ↓**). Release and the nose auto-levels at the new altitude. A **W** tap snaps you level and straight |
+| **W / S** hold | climb / dive (also **↑ / ↓**, **Space / Shift**). Release and the nose auto-levels at the new altitude |
+| **A / D** hold | bank left / right (also **← / →**). Short taps trim by fractions of a degree |
+| *(throttle)* | **auto-throttle** (settings → controls, on by default): the jet always flies on, and while you hold a straight line the next barrier charges by itself (tier II right after launch). You only steer |
+| **B** hold | airbrake: bleed charge, then drop one tier every 0.75 s (down to I) |
+| *(auto-throttle off)* | classic keys: **W** tap launch / level, **W** hold charge the barrier, **S** brake, **Space / Shift** climb / dive |
 | **Mouse** | look + aim (pointer lock: click the game). Never steers the jet: the camera orbits / your head turns, and the crosshair is where shots go. Eases back to forward after ~1.6 s idle; **Q** / middle mouse snaps back |
-| **LMB** / **J** | minigun down the crosshair (both guns converge on it): 11 heavy rounds/s at 6.5 km/s. Assist leads a target only within ~14° of the crosshair (crosshair turns red). Overheats after ~3 s of fire and clears in about a second. Every hit pops a damage number at the hit point (gun hits on one target stack), flashes the enemy white and ticks a hit marker on the crosshair (red on a kill) |
-| **RMB** / **K** hold → release | **lock-on**. While held, keep the crosshair on an enemy (within 5° of it) and a ring charges around it over 0.75 s. The fill is slow at first and fast at the end. Then move to the next one (up to 4, and never more than the missiles you have). A slip under 0.3 s keeps the progress. **Release** fires one hypersonic **kill missile** per lock (5.2 km/s, out in a 35 ms ripple). A lock is a guaranteed kill, usually within 0.1–0.2 s of release, whatever the target's hull. With nothing locked, a regular pair flies straight down the crosshair (8 max, they reload) |
-| **F** | **flares**: decoy every incoming missile due to hit within 3.2 s while they burn. Fire too early and they're wasted. 3 charges, one back every 5 s |
+| **Mouse** aim = **shooting** | **auto-fire** (settings → controls, on by default): you fly and look, the jet fights. The **gun** opens up on any enemy within 34° of the crosshair and in range: 11 heavy rounds/s at 6.5 km/s, leading the target, in bursts that rest before overheating. **Keep looking at an enemy** (within 16°) for 0.75 s and a ring fills around it, slow at first and fast at the end. On lock a hypersonic **kill missile** leaves at once (5.2 km/s), a guaranteed kill. **Flares** drop by themselves when a missile is about to land. Only the aim matters, never the nose. While you're engaging, the crosshair stays fixed in the world as the jet banks, climbs and dives under it, eases along with the enemy it's on, and never drifts back to the nose. Every hit pops a stacking damage number, flashes the enemy white and ticks a hit marker (red on a kill) |
+| **LMB** / **J** | auto-fire on: forces the gun. Auto-fire off: shoot; hold to lock on, release to fire a kill missile per lock (a burst with no lock fires none) |
+| **RMB** / **K** hold → release | auto-fire off: lock-on without the gun; released with nothing locked, a regular pair flies down the crosshair (8 missiles max, they reload) |
+| **F** | flares by hand: decoy every missile due within 3.2 s while they burn (3 charges, one back every 5 s) |
 | **C** | chase camera (default: far behind, horizon never tilts) ↔ cockpit POV (banks with the stick). Remembered |
 | **M** | mute |
 | **O** / **Esc** | settings. Esc mid-flight (it releases the mouse) pauses the game with the settings window; Esc or `[ resume ]` continues |
+
+**Touch** (phones / tablets; `?touch` forces it on desktop): two floating sticks appear where your thumbs land. The **left** stick flies: bank, climb and dive (analog). Throttle is automatic: fly straight and the barrier charges. The **right** stick aims (a rate stick: the farther, the faster). Shooting is automatic. There is a **brake** button and **||** for pause / settings.
 
 ## Mechanics (all numbers in `src/config.js`)
 
@@ -108,7 +111,7 @@ Add a skin by adding an entry to `SKINS` and its id to `SKIN_IDS` (`src/config.j
 
 ## Look
 
-Effects are vector-style, never realistic: explosions are expanding wireframe shells and rings plus hard square and `+` glyphs that blink out in steps; contrails are 1 px lines that trace your trajectory; missile trails are hollow square dots. No smoke, no soft gradients.
+Effects are vector-style, never realistic: explosions are expanding wireframe shells and rings plus hard square and `+` glyphs that blink out in steps; contrails are 1 px lines that trace your trajectory; missile trails are thin fading lines tracing the missile's recent path (ink, red for the enemy's). No smoke, no soft gradients.
 
 **Sky.** A procedural anime sky (`src/world/Sky.js`): saturated blue gradient, crisp white sun, and cel-shaded clouds (white tops, periwinkle shadows, thin drawn outlines) in three layers. Horizon cumulus towers only rotate when you turn. A high cumulus field drifts slowly. A low puff layer at ~8 km rushes overhead and smears into speed streaks along your flight direction as Mach rises. The smear is symmetric around each point, so the cloud field never slides when only speed changes (an earlier version rescaled it around the camera, which made clouds drift at launch and at every barrier; measured now: 0 px shift). The noise is 256-periodic, so the camera offset wraps and the sky stays crisp after any distance. The fog color equals the sky's horizon color, so terrain melts into the sky.
 

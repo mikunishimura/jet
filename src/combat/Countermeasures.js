@@ -40,6 +40,9 @@ export class Countermeasures {
 
   get worst() { return this.threats[0] || null; }
 
+  /** auto-fire: is a missile about to land (and a flare ready)? */
+  wantsAutoFlare() { const w = this.worst; return !!w && w.tti < THREATS.autoFlareAt && this.charges > 0; }
+
   deploy() {
     const g = this.game, p = g.player, F = THREATS.flares;
     if (!p.alive) return 0;

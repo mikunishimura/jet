@@ -7,7 +7,21 @@ import { AIM } from '../config.js';
 
 export class Aim {
   constructor(cfg = AIM) { this.cfg = cfg; this.reset(); }
-  reset() { this.yaw = 0; this.pitch = 0; this.idle = 0; this.snapping = false; }
+  reset() { this.yaw = 0; this.pitch = 0; this.idle = 0; this.snapping = false; this.worldLock = false; }
+
+  /** the view base turned by (dh, dp): counter it so the crosshair stays fixed in the world */
+  hold(dh, dp) {
+    const c = this.cfg;
+    this.yaw = Math.max(-c.maxYaw, Math.min(c.maxYaw, this.yaw - dh));
+    this.pitch = Math.max(-c.maxPitchDown, Math.min(c.maxPitchUp, this.pitch - dp));
+  }
+
+  /** ease the aim toward (yaw, pitch) at `rate` 1/s: the auto-fire magnet on a target */
+  pull(yaw, pitch, rate, dt) {
+    if (this.snapping) return;
+    const k = 1 - Math.exp(-rate * dt);
+    this.yaw += (yaw - this.yaw) * k; this.pitch += (pitch - this.pitch) * k;
+  }
 
   /**
    * ctl.lookX / ctl.lookY: mouse deltas (px) since last frame.

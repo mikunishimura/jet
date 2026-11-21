@@ -5,7 +5,7 @@ import { FLAG_DEFAULTS } from './flags.js';
 
 export const DEFAULTS = {
   audio: { muted: false, master: 0.8, engine: 0.8, sfx: 0.9 },
-  controls: { sensitivity: 1.0, invertY: false, autoRecenter: true, recenterDelay: 1.6 },
+  controls: { autoThrottle: true, autoFire: true, autoAim: true, sensitivity: 1.0, invertY: false, autoRecenter: true, recenterDelay: 1.6 },
   view: { camera: 'chase', skin: SKIN_IDS[0], fovOffset: 0, renderScale: 1.0, showFps: false },
   fx: { intensity: 1.0, flashes: true, shake: 1.0, blur: 1.0 },
   flags: { space: FLAG_DEFAULTS.space },   // feature flags (URL ?space=off still wins, see core/flags.js)

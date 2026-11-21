@@ -193,12 +193,17 @@ export const AIM = {
   recenterDelay: 1.6,       // s without mouse movement or firing before easing back to forward
   recenterRate: 1.8,        // 1/s exponential ease back
   convergence: 1500,        // m: gun streams meet the crosshair ray here when nothing is assisted
-  assistCone: 14 * DEG,     // minigun leads a target only this close to the crosshair
+  assistCone: 14 * DEG,     // minigun leads a target only this close to the crosshair (set from autoCone / manualCone)
+  autoAim: true,            // settings: controls.autoAim
+  autoFire: true,           // settings: controls.autoFire. Gun, lock-on missiles and flares fire by themselves
+  magnet: 3.2,              // auto-fire: 1/s the crosshair eases onto the enemy it is already on (follows its motion)
+  autoCone: 34 * DEG,       // auto-aim: the gun finds enemies this far from the crosshair
+  manualCone: 14 * DEG,     // auto-aim off: classic assist
 };
 
 export const WEAPONS = {
   // heavier, slower rounds (was 26/s × 6 dmg); the barrels cool and unjam fast
-  minigun: { rate: 11, speed: 6500, damage: 14, spread: 0.004, heatPerShot: 0.034, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 1900 },
+  minigun: { rate: 11, speed: 6500, damage: 14, spread: 0.004, heatPerShot: 0.011, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 1900 },
   missiles: { salvo: 4, stagger: 0.07, max: 8, reload: 1.4, speed: 750, accel: 900, turnRate: 4.2, damage: 70, splash: 70, life: 6 },
   // a hard lock is a kill: one hypersonic missile per locked target, out in a quick ripple
   lockedMissile: { speed: 5200, accel: 60000, turnRate: 40, stagger: 0.035, prox: 30, life: 3 },
@@ -207,7 +212,8 @@ export const WEAPONS = {
   // missile lock-on: hold RMB / K, keep the crosshair on an enemy, release to fire
   lock: {
     time: 0.75,            // s of tracking per target
-    margin: 5 * DEG,       // aim error allowed around the target's own angular size
+    margin: 5 * DEG,       // aim error allowed around the target's own angular size (auto-aim off)
+    autoMargin: 16 * DEG,  // ... with auto-aim on
     grace: 0.3,            // s the crosshair may slip off before progress drains
     drain: 1.2,            // progress / s lost after the grace period
     maxTargets: 4,
@@ -222,6 +228,7 @@ export const THREATS = {
   warnFrom: 5,             // s to impact: the warning starts
   breakAt: 1.6,            // s: "break / flares now"
   flares: { charges: 3, recharge: 5, life: 1.3, window: 3.2, eject: 160 }, // window: s-to-impact a flare can still pull a missile off
+  autoFlareAt: 1.1,        // auto-fire: flares go out by themselves this close to impact (s)
 };
 
 export const DIRECTOR = {

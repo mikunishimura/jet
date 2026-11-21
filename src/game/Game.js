@@ -4,6 +4,7 @@ import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_S
 import { resolveFlag } from '../core/flags.js';
 import { Space } from '../space/Space.js';
 import { Settings } from '../core/Settings.js';
+import { TouchControls } from '../ui/TouchControls.js';
 import { SettingsPanel } from '../ui/SettingsPanel.js';
 
 const AIM_BASE_SENSITIVITY = AIM.sensitivity; // settings scale this
@@ -98,6 +99,9 @@ export class Game {
       if (!document.pointerLockElement && this.state === 'playing' && this.player.alive && !this.settingsPanel.isOpen) this.openSettings();
     });
     this.autopilot = new Autopilot(this);
+    // phones / tablets: two virtual sticks (fly + aim); the jet shoots by itself
+    this.touch = new TouchControls({ onPause: () => this.toggleSettings() });
+    this.input.touch = this.touch;
 
     this.best = this.loadBest();
     this.state = 'menu';
@@ -154,6 +158,10 @@ export class Game {
     this.audio.setLevels(v.audio);
     AIM.sensitivity = AIM_BASE_SENSITIVITY * v.controls.sensitivity;
     AIM.invertY = v.controls.invertY;
+    AIM.autoAim = v.controls.autoAim;
+    AIM.autoFire = v.controls.autoFire;
+    this.input.autoThrottle = v.controls.autoThrottle;
+    AIM.assistCone = v.controls.autoAim ? AIM.autoCone : AIM.manualCone;
     AIM.recenterDelay = v.controls.autoRecenter ? v.controls.recenterDelay : Infinity;
     if (this.rig.mode !== v.view.camera) this.rig.setMode(v.view.camera);
     if (this.jet.skinId !== v.view.skin) this.jet.setSkin(v.view.skin);
@@ -244,6 +252,7 @@ export class Game {
     document.getElementById('menu').classList.add('hidden');
     document.getElementById('death').classList.add('hidden');
     this.hud.show(true);
+    this.touch.show(true);
   }
 
   showMenu() {
@@ -251,6 +260,7 @@ export class Game {
     this.state = 'menu';
     this.attract = true;
     this.hud.show(false);
+    this.touch.show(false);
     document.getElementById('menu').classList.remove('hidden');
   }
 
@@ -507,11 +517,23 @@ export class Game {
     if (inp.wasPressed('KeyC')) this.toggleCamera();
     if (inp.wasPressed('KeyM')) { this.audio.init(); this.settings.set('audio.muted', !this.settings.get('audio.muted')); }
 
+    this.touch.update(real, inp); // right stick -> look deltas, like the mouse
     const ctl = (this.attract || this.useAutopilot) ? this.autopilot.control(dt) : inp.state();
     const p = this.player;
     // mouse aim: never touches the trajectory, only camera + weapons
-    if (this.state === 'playing' && !this.attract && !this.useAutopilot && p.alive) this.aim.update(dt, ctl, this.weapons.firing || this.weapons.holding);
-    else this.aim.reset();
+    // the AIM does the fighting, not the nose: while engaged the view never drifts back
+    // to the nose, and the crosshair stays fixed in the world as the jet maneuvers
+    const engaged = this.weapons.engaged && !!this.weapons.primary;
+    if (this.state === 'playing' && !this.attract && !this.useAutopilot && p.alive) {
+      this.aim.update(dt, ctl, ctl.gun || engaged || (!AIM.autoFire && this.weapons.holding));
+      this.aim.worldLock = engaged;
+      // auto-fire magnet: once the crosshair is on an enemy, it follows that enemy's motion
+      const t = this.weapons.primary;
+      if (AIM.autoFire && t && this.weapons.assisted && !(ctl.lookX || ctl.lookY)) {
+        const o = this.rig.aimOffsetsFor(t.pos, p);
+        this.aim.pull(o.yaw, o.pitch, AIM.magnet, dt);
+      }
+    } else this.aim.reset();
 
     if (this.flagsPending) this.syncFlags();
     p.update(dt, ctl, this.world);
@@ -522,7 +544,7 @@ export class Game {
     this.hazards.update(dt, p, this.difficulty || 0);
 
     this.weapons.update(dt, p.alive ? ctl : {});
-    if (p.alive && ctl.flares) this.counter.deploy();
+    if (p.alive && (ctl.flares || (AIM.autoFire && !this.attract && this.counter.wantsAutoFlare()))) this.counter.deploy();
     this.enemies.update(dt);
     this.projectiles.update(dt);
     this.counter.update(dt);
@@ -550,7 +572,7 @@ export class Game {
     }
     if (this.state === 'playing' && !p.alive) {
       this.deathTimer -= real;
-      if (this.deathTimer <= 0) { this.state = 'dead'; this.input.releaseLock(); document.getElementById('death').classList.remove('hidden'); }
+      if (this.deathTimer <= 0) { this.state = 'dead'; this.input.releaseLock(); this.touch.show(false); document.getElementById('death').classList.remove('hidden'); }
     }
     if (this.attract && !p.alive) this.reset(Math.floor(Math.random() * 1e9));
 

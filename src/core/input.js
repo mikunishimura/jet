@@ -7,6 +7,10 @@ export class Input {
     this.mouseDown = false;
     this.mouse2Down = false;
     this.virtual = null; // autopilot can inject a virtual controller
+    this.touch = null;   // TouchControls (set by Game): virtual sticks merged into state()
+    // auto-throttle (settings, default): the jet always flies on and charges by itself;
+    // W A S D are just up / left / down / right. B = airbrake. Off: W throttle, S brake.
+    this.autoThrottle = true;
     this.lookX = 0; this.lookY = 0;
     this.locked = false;
     document.addEventListener('pointerlockchange', () => { this.locked = !!document.pointerLockElement; });
@@ -16,7 +20,7 @@ export class Input {
     });
     target.addEventListener('keydown', (e) => {
       const k = e.code;
-      if (['KeyW','KeyA','KeyS','KeyD','KeyJ','KeyK','KeyQ','KeyF','Space','ShiftLeft','ShiftRight','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(k)) e.preventDefault();
+      if (['KeyW','KeyA','KeyS','KeyD','KeyB','KeyJ','KeyK','KeyQ','KeyF','Space','ShiftLeft','ShiftRight','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(k)) e.preventDefault();
       if (!this.down.has(k)) this.pressed.add(k);
       this.down.add(k);
     });
@@ -34,7 +38,7 @@ export class Input {
   state() {
     if (this.virtual) return this.virtual;
     const d = this.down;
-    return {
+    const s = {
       left: d.has('KeyA') || d.has('ArrowLeft'),
       right: d.has('KeyD') || d.has('ArrowRight'),
       throttle: d.has('KeyW'),
@@ -48,10 +52,18 @@ export class Input {
       lookX: this.lookX, lookY: this.lookY,
       recenter: this.pressed.has('KeyQ') || this.pressed.has('Mouse1'),
     };
+    if (this.autoThrottle) {
+      s.throttle = true; s.throttleTap = false;
+      s.brake = d.has('KeyB');
+      s.up = s.up || d.has('KeyW');
+      s.down = s.down || d.has('KeyS');
+    }
+    if (this.touch?.enabled) Object.assign(s, this.touch.axes());
+    return s;
   }
   /** Must be called from a user gesture (click / keydown). Raw deltas when supported. */
   requestLock(el) {
-    if (!el?.requestPointerLock || this.locked) return;
+    if (!el?.requestPointerLock || this.locked || this.touch?.enabled) return;
     const plain = () => { try { el.requestPointerLock()?.catch?.(() => {}); } catch { /* denied: the click hint stays up */ } };
     try {
       const r = el.requestPointerLock({ unadjustedMovement: true });
