@@ -134,6 +134,12 @@ export const COLLISION = {
   tierLossOnHeadOn: true, // a head-on terrain crash costs one tier (your mistake, not an attack)
 };
 
+// Speed streaks follow the flight path, not the camera: within `deadzone` (rad) of
+// looking straight they are the classic camera tunnel, by `full` they stream along the
+// velocity. tail: extra travel behind the lens when looking away; sideShorten: streak
+// length cut when seen side-on; relax: 1/s pull of the tube's roll back to camera-up.
+export const SPEED_LINES = { deadzone: 0.14, full: 0.45, tail: 400, sideShorten: 0.5, relax: 3 };
+
 // Near misses: pass an obstacle close without touching it and the barrier
 // charges. Clearance is surface-to-hull, in meters; the window widens with speed
 // (constant reaction time). Closer = more charge.

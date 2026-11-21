@@ -550,7 +550,7 @@ export class Game {
     this.cockpit.update(dt, p, this.fx.shake, this.rig.cockpitLocal);
     this.cockpit.root.visible = p.alive && pov;
     this.jet.update(dt, p, !pov, this.fx.jetScale);
-    this.speedLines.update(dt, s.speed, s.level, s.charge);
+    this.speedLines.update(dt, s.speed, s.level, s.charge, p.vel);
     const H = this.renderer.getDrawingBufferSize(new THREE.Vector2()).y;
     this.particles.normal.update(dt, this.camera, this.scene.fog, H, p.vel);
     this.particles.vector.update(dt, p.vel);
