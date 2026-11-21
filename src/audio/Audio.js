@@ -13,6 +13,7 @@ export class Audio {
     this.enabled = true;
     this.lastGun = 0;
     this.levels = { muted: false, master: 0.8, engine: 0.8, sfx: 0.9 };
+    this.air = 1; // 1 = sea level .. 0 = vacuum (space flight): wind and roar fade, the engine goes muffled
   }
 
   /** user audio settings: { muted, master, engine, sfx } (0..1). Safe before init. */
@@ -111,11 +112,12 @@ export class Audio {
     const on = alive ? 1 : 0;
     this.osc1.frequency.setTargetAtTime(45 + speed01 * 90 + (throttle ? 12 : 0), t, k);
     this.osc2.frequency.setTargetAtTime(45.6 + speed01 * 91 + (throttle ? 12 : 0), t, k);
-    this.engFilter.frequency.setTargetAtTime(250 + speed01 * 1400 + (throttle ? 400 : 0), t, k);
+    const air = this.air;
+    this.engFilter.frequency.setTargetAtTime((250 + speed01 * 1400 + (throttle ? 400 : 0)) * (0.45 + 0.55 * air), t, k);
     this.engGain.gain.setTargetAtTime(on * (0.10 + speed01 * 0.06), t, k);
     this.roarFilter.frequency.setTargetAtTime(400 + speed01 * 1800, t, k);
-    this.roarGain.gain.setTargetAtTime(on * (0.12 + speed01 * 0.2 + (throttle ? 0.08 : 0) - (braking ? 0.05 : 0)), t, k);
-    this.windGain.gain.setTargetAtTime(on * speed01 * speed01 * 0.18, t, k);
+    this.roarGain.gain.setTargetAtTime(on * (0.12 + speed01 * 0.2 + (throttle ? 0.08 : 0) - (braking ? 0.05 : 0)) * (0.35 + 0.65 * air), t, k);
+    this.windGain.gain.setTargetAtTime(on * speed01 * speed01 * 0.18 * air, t, k);
     this.windFilter.frequency.setTargetAtTime(1200 + speed01 * 3000, t, k);
     this.riser.frequency.setTargetAtTime(110 + charge * charge * 900 * (0.6 + tier * 0.15), t, 0.05);
     this.riserFilter.frequency.setTargetAtTime(300 + charge * 2600, t, 0.05);

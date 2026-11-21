@@ -8,6 +8,10 @@
 // World scale: features generate in BASE meters (chunkSize 500); each chunk's
 // render group is scaled by WORLD_SCALE and its colliders/triggers converted
 // to absolute meters once, at build time. Queries take absolute meters.
+//
+// Layers: other streamed realms (the orbital asteroid field) plug in with
+// addLayer(). A layer streams its own chunks (same shape as ours) and exposes
+// forEachNear / rebase / reset / update; every query here includes it.
 import * as THREE from 'three';
 import { WORLD, WORLD_SCALE, tierLevel } from '../config.js';
 import { chunkRng } from '../core/rng.js';
@@ -16,20 +20,22 @@ import { RockLibrary } from './rocks.js';
 import { Biomes } from './biomes.js';
 import { listFeatures } from './features/index.js';
 import { labMaterial, outlineMaterial } from '../render/materials.js';
-import { contact, radiusAt, CAPSULE } from '../game/Collision.js';
+import { contact, radiusAt, CAPSULE, SPHERE } from '../game/Collision.js';
 
 const key = (cx, cz) => `${cx},${cz}`;
 const S = WORLD_SCALE;
 
 /** base-meter collider → absolute meters (in place) */
-function scaleCollider(c) {
+export function scaleCollider(c) {
   c.x *= S; c.z *= S; c.r *= S; c.top *= S; c.bottom *= S;
+  if (c.kind === SPHERE) c.y *= S;
   if (c.kind === CAPSULE) { c.ax *= S; c.az *= S; c.bx *= S; c.bz *= S; c.br *= S; }
   if (c.rAt) { const f = c.rAt; c.rAt = (y) => f(y / S) * S; }
   if (c.radius) c.radius *= S;
   if (c.height) c.height *= S;
 }
-function scaleTrigger(t) {
+export function scaleTrigger(t) {
+  if (t.kind === 'ring') { t.x *= S; t.y *= S; t.z *= S; t.r *= S; return; }
   t.ax *= S; t.az *= S; t.bx *= S; t.bz *= S;
   if (t.top !== undefined) t.top *= S;
   if (t.bottom !== undefined) t.bottom *= S;
@@ -49,6 +55,7 @@ export class World {
     this.chunks = new Map();
     this.dynamic = [];   // pseudo-chunks spawned at runtime (path hazards)
     this.queue = [];
+    this.layers = [];    // extra streamed realms (see addLayer)
     this.origin = { x: 0, z: 0 };
     this.csize = WORLD.chunkSize * S; // absolute chunk size
     this.reset(seed);
@@ -63,6 +70,7 @@ export class World {
     this.seed = seed;
     this.biomes = new Biomes(seed);
     this.origin.x = 0; this.origin.z = 0;
+    for (const l of this.layers) l.reset(seed);
     this.spawnHeading = 0;
     this.stats = { built: 0, lastBuildMs: 0 };
   }
@@ -95,9 +103,13 @@ export class World {
     return chunk;
   }
 
+  /** Plug in another streamed realm (it shares collisions, triggers, rebase). */
+  addLayer(layer) { if (!this.layers.includes(layer)) this.layers.push(layer); layer.reset?.(this.seed); return layer; }
+  removeLayer(layer) { const i = this.layers.indexOf(layer); if (i >= 0) this.layers.splice(i, 1); }
+
   /** bake a base-meter builder into a scaled render group + absolute colliders */
-  finalize(builder) {
-    const group = builder.bake(this.materials);
+  finalize(builder, materials = this.materials) {
+    const group = builder.bake(materials);
     group.scale.setScalar(S);
     const centerX = builder.centerX * S, centerZ = builder.centerZ * S;
     group.position.set(centerX - this.origin.x, 0, centerZ - this.origin.z);
@@ -114,8 +126,9 @@ export class World {
 
   viewDistance(tier) { return WORLD.viewDistBase + WORLD.viewDistPerTier * (tierLevel(tier) - 1); }
 
-  /** absX/absZ: player absolute position. fx/fz: forward. */
-  update(absX, absZ, fx, fz, tier, time) {
+  /** absX/absZ: player absolute position. fx/fz: forward. y: altitude (for layers). */
+  update(absX, absZ, fx, fz, tier, time, y = 0) {
+    for (const l of this.layers) l.update(absX, y, absZ, fx, fz, tier, time);
     const size = this.csize;
     const view = this.viewDistance(tier);
     const pcx = Math.floor(absX / size), pcz = Math.floor(absZ / size);
@@ -170,6 +183,7 @@ export class World {
     this.origin.x += dx; this.origin.z += dz;
     for (const c of this.chunks.values()) c.group.position.set(c.centerX - this.origin.x, 0, c.centerZ - this.origin.z);
     for (const d of this.dynamic) d.group.position.set(d.centerX - this.origin.x, 0, d.centerZ - this.origin.z);
+    for (const l of this.layers) l.rebase(this.origin);
   }
 
   /**
@@ -177,8 +191,8 @@ export class World {
    * centerX/centerZ is the structure's base-meter center). It collides, raycasts and triggers exactly
    * like streamed terrain.
    */
-  addDynamic(builder, reachBase) {
-    const d = { ...this.finalize(builder), reach: reachBase * S };
+  addDynamic(builder, reachBase, materials) {
+    const d = { ...this.finalize(builder, materials), reach: reachBase * S };
     this.dynamic.push(d);
     return d;
   }
@@ -198,6 +212,7 @@ export class World {
     for (const d of this.dynamic) {
       if (Math.abs(d.centerX - absX) < d.reach + size && Math.abs(d.centerZ - absZ) < d.reach + size) fn(d);
     }
+    for (const l of this.layers) l.forEachNear(absX, absZ, fn);
   }
 
   /** Deepest contact for a sphere at an absolute point. */
@@ -244,17 +259,35 @@ export class World {
     return best;
   }
 
-  /** Segment triggers crossed by the player moving from (ax,az) to (bx,bz) at height y. */
-  crossedTriggers(ax, az, bx, bz, out, y = 0) {
+  /**
+   * Triggers crossed by the player moving from (ax,ay0,az) to (bx,y,bz):
+   * 'segment' gates (2D line + height window) and 'ring' gates (3D disk).
+   */
+  crossedTriggers(ax, az, bx, bz, out, y = 0, ay = y) {
     this.forEachNear(bx, bz, (c) => {
       for (const t of c.triggers) {
-        if (t.kind !== 'segment' || t.used) continue;
+        if (t.used) continue;
+        if (t.kind === 'ring') {
+          if (ringCrossed(t, ax, ay, az, bx, y, bz)) { t.used = true; out.push(t); }
+          continue;
+        }
+        if (t.kind !== 'segment') continue;
         if (y > (t.top ?? Infinity) || y < (t.bottom ?? -Infinity)) continue;
         if (segmentsIntersect(ax, az, bx, bz, t.ax, t.az, t.bx, t.bz)) { t.used = true; out.push(t); }
       }
     });
     return out;
   }
+}
+
+/** Did the segment A->B pass through ring t's disk (center x,y,z, normal nx,ny,nz, radius r)? */
+export function ringCrossed(t, ax, ay, az, bx, by, bz) {
+  const sa = (ax - t.x) * t.nx + (ay - t.y) * t.ny + (az - t.z) * t.nz;
+  const sb = (bx - t.x) * t.nx + (by - t.y) * t.ny + (bz - t.z) * t.nz;
+  if (sa * sb > 0 || sa === sb) return false;          // same side of the plane
+  const k = sa / (sa - sb);
+  const px = ax + (bx - ax) * k - t.x, py = ay + (by - ay) * k - t.y, pz = az + (bz - az) * k - t.z;
+  return px * px + py * py + pz * pz < t.r * t.r;
 }
 
 function segmentsIntersect(ax, az, bx, bz, cx, cz, dx, dz) {

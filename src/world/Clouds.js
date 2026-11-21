@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { polarDisk } from './Ground.js';
 import { CLOUD_GLSL, LAYERS, SKY_COLORS } from './Sky.js';
 import { SUN_DIR } from '../render/materials.js';
-import { CURVE, CURVE_GLSL } from '../render/curvature.js';
+import { CURVE_GLSL, curveUniforms } from '../render/curvature.js';
 import { TIERS } from '../config.js';
 
 export const DECK_ALTITUDE = LAYERS.low.h * 1000; // m (8 km)
@@ -62,7 +62,7 @@ export class Clouds {
       }]),
       vertexShader: vert, fragmentShader: frag, fog: true, side: THREE.DoubleSide,
     });
-    this.material.uniforms.uCurve = CURVE;
+    curveUniforms(this.material);
     this.mesh = new THREE.Mesh(polarDisk(150000, 56, 96, 200), this.material);
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);

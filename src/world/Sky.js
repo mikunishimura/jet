@@ -101,18 +101,61 @@ const frag = /* glsl */`
   uniform vec2 uShafts;    // x alpha, y count
   uniform sampler2D uMachTex;
   uniform float uMachA;
+  // orbit (space flight, src/space/Space.js): 0 below the earth ceiling = untouched sky
+  uniform float uOrbit;    // 0 day .. 1 black space sky
+  uniform float uLimb;     // sin(elevation) of the planet's limb (<= 0)
+  uniform vec3 uVoid;      // the black of space
   varying vec3 vDir;
 
   ${CLOUD_GLSL}
+
+  float hash3(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+  // one star per lit cell of a 3D grid over the sphere (no pole pinching, no
+  // derivatives). n: cells per radian, keep: share of lit cells, size: radius in cells
+  float starLayer(vec3 d, float n, float keep, float size) {
+    vec3 c = floor(d * n);
+    float h = hash3(c);
+    if (h > keep) return 0.0;
+    vec3 sp = normalize(c + vec3(hash3(c + 1.7), hash3(c + 9.2), hash3(c + 4.3)));
+    float k = length(d * n - sp * n);
+    return smoothstep(size, size * 0.25, k) * (0.45 + 0.55 * hash3(c + 2.9));
+  }
+  // anime night: crisp white stars in three sizes, a faint periwinkle galaxy band,
+  // a bright atmosphere rim right above the planet's limb
+  vec3 orbitSky(vec3 d, float sd) {
+    vec3 col = uVoid;
+    vec3 mwN = normalize(vec3(0.42, 0.78, -0.46));
+    float b = dot(d, mwN);
+    float band = exp(-b * b / 0.018);
+    vec2 mp = vec2(atan(d.z, d.x) * 2.6, b * 9.0);
+    float neb = fbm(mp * 1.8 + 7.0);
+    col += vec3(0.17, 0.2, 0.36) * band * smoothstep(0.38, 0.78, neb) * 0.6;
+    float st = starLayer(d, 260.0, 0.05 + 0.12 * band, 0.32) * 0.55
+             + starLayer(d, 110.0, 0.05, 0.26)
+             + starLayer(d, 34.0, 0.035, 0.11) * 1.6;
+    col += vec3(0.9, 0.93, 1.0) * st * (0.9 + 0.1 * sin(uTime * 3.1 + d.x * 400.0));
+    // sun in vacuum: harder disc, tighter glare
+    col = mix(col, vec3(1.0), smoothstep(0.9982, 0.9987, sd));
+    col += vec3(0.22) * pow(sd, 90.0) + vec3(0.06) * pow(sd, 12.0);
+    // atmosphere: a thin pale rim on the limb, a wider blue glow over it
+    float h = d.y - uLimb;
+    float rim = exp(-max(h, 0.0) * 55.0), glow = exp(-max(h, 0.0) * 9.0);
+    col = mix(col, uMid, glow * 0.42);
+    col = mix(col, uHorizon, rim * 0.9);
+    col = mix(col, uHorizon, smoothstep(0.0, -0.004, h)); // below the limb: planet haze
+    return col;
+  }
 
   void main() {
     vec3 d = normalize(vDir);
     float up = d.y;
     // anime gradient: pale horizon band -> clear cyan-blue -> saturated zenith
     vec3 zen = mix(uZenith, uZenith * vec3(0.78, 0.86, 1.0), uTint);
-    vec3 col = mix(uHorizon, uMid, smoothstep(0.0, 0.22, up));
-    col = mix(col, zen, smoothstep(0.18, 0.9, up));
-    col += vec3(0.05) * exp(-max(up, 0.0) * 24.0); // bright haze line at the horizon
+    // climbing out (uOrbit > 0): the gradient's horizon slides down onto the planet's limb
+    float upG = mix(up, (up - uLimb) / (1.0 - uLimb), uOrbit);
+    vec3 col = mix(uHorizon, uMid, smoothstep(0.0, 0.22, upG));
+    col = mix(col, zen, smoothstep(0.18, 0.9, upG));
+    col += vec3(0.05) * exp(-max(upG, 0.0) * 24.0); // bright haze line at the horizon
 
     // ambient: the sky drifts toward space as you climb tiers (zenith darkens, stars come out)
     float azA = atan(d.x, d.z);
@@ -163,7 +206,9 @@ const frag = /* glsl */`
     float upc = max(up, 0.012);
     vec2 relH = d.xz * (max(0.5, uHighH - uCamAlt) / upc) / uHighScale;
     vec4 ch = toon(uHighOff + relH, 0.54, uSun.xz * 0.16);
-    col = mix(col, ch.rgb, ch.a * smoothstep(0.035, 0.16, up));
+    // past the earth ceiling you climb through this layer: it thins out (no-op below 24 km)
+    col = mix(col, ch.rgb, ch.a * smoothstep(0.035, 0.16, up) * (1.0 - smoothstep(24.0, 31.0, uCamAlt)));
+    if (uOrbit > 0.0) col = mix(col, orbitSky(d, sd), uOrbit);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -205,6 +250,7 @@ export class Sky {
         uAmb: { value: 0 }, uSpace: { value: 0 }, uSpaceZen: { value: c(0x060914) }, uStars: { value: 0.9 },
         uBeat: { value: 0 }, uShafts: { value: new THREE.Vector2(0.07, 7) },
         uMachTex: { value: null }, uMachA: { value: 0 },
+        uOrbit: { value: 0 }, uLimb: { value: 0 }, uVoid: { value: c(0x04060c) },
       },
       vertexShader: vert, fragmentShader: frag, side: THREE.BackSide, depthWrite: false,
     });

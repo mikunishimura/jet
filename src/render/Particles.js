@@ -6,7 +6,7 @@
 // air) or `rel` = carried along in the player's frame (combat effects), so it
 // stays readable at Mach 100.
 import * as THREE from 'three';
-import { CURVE, CURVE_GLSL } from './curvature.js';
+import { CURVE, CURVE_FADE, CURVE_GLSL } from './curvature.js';
 
 export const SHAPE = { SQUARE: 0, PLUS: 1, BOX: 2, RING: 3 };
 
@@ -79,7 +79,7 @@ export class Particles {
     g.setAttribute('position', this.aPos); g.setAttribute('aColor', this.aCol);
     g.setAttribute('aSize', this.aSize); g.setAttribute('aAlpha', this.aAlpha); g.setAttribute('aShape', this.aShape);
     this.material = new THREE.ShaderMaterial({
-      uniforms: { uScale: { value: 500 }, fogColor: { value: new THREE.Color() }, fogDensity: { value: 0 }, uCurve: CURVE },
+      uniforms: { uScale: { value: 500 }, fogColor: { value: new THREE.Color() }, fogDensity: { value: 0 }, uCurve: CURVE, uCurveFade: CURVE_FADE },
       vertexShader: vert, fragmentShader: frag, transparent: true, depthWrite: false,
     });
     this.points = new THREE.Points(g, this.material);

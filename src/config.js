@@ -51,9 +51,16 @@ export const SPEED = {
   autoFirstBarrier: true,  // tier II charges by itself after launch: the first Mach change comes within ~1 s
 };
 
+// Feature flags. Read them only through the systems they gate; Game latches
+// them at the start of each flight (see core/flags.js for the URL / settings
+// overrides). `space`: the ceiling opens up into orbit (asteroids, rings).
+export const FLAGS = { space: true };
+
 export const FLIGHT = {
   minAltitude: 6,       // ground contact below this
-  ceiling: 24000,       // containment ceiling: far above the low cloud deck (8 km)
+  earthCeiling: 24000,  // containment ceiling on "earth" (space flag off): far above the cloud deck (8 km)
+  /** active containment ceiling: the orbit ceiling when space flight is on */
+  get ceiling() { return FLAGS.space ? SPACE.ceiling : this.earthCeiling; },
   obstacleBand: 1500,   // terrain/path obstacles live below ~this; the sky above is open but radar-exposed
   // spawn: midway in the obstacle band (where the gameplay is), not midway to the 24 km ceiling
   get altitude() { return (this.minAltitude + this.obstacleBand) / 2; },
@@ -70,6 +77,31 @@ export const FLIGHT = {
   stabilizeTime: 0.25,  // W tap: time to null residual yaw
   bankAngle: 0.42,      // radians of camera roll at full stick
   playerRadius: 7,
+};
+
+// Space flight (FLAGS.space). Altitudes in absolute meters. Everything up here
+// lives in src/space/; with the flag off none of it is created and the world
+// ends at FLIGHT.earthCeiling exactly as before.
+export const SPACE = {
+  skyFrom: 24000,        // the sky starts turning to space (== earth ceiling: nothing changes below it)
+  edge: 60000,           // Kármán line: black sky, stars; the 'space' band starts here
+  ceiling: 150000,       // orbit ceiling
+  hazardFloor: 64000,    // above: obstacles down your path are asteroids, moons and rings
+  field: {               // static asteroid field (scenery + the odd obstacle), streamed in columns
+    floor: 70000, top: 146000,
+    streamFrom: 38000, dropBelow: 30000, // build columns above streamFrom, free them all below dropBelow
+    count: [0, 4],       // asteroids per 10 km column (sparse .. inside a belt)
+    moonChance: 0.025,   // a big drifting moon in this column
+  },
+  turbulence: 0.35,      // gusts in vacuum (solar wind): fraction of the tier's turbulence
+  chargeRate: 1.0,       // barrier charge multiplier in orbit (no radar penalty)
+  interval: [8, 4.5],    // seconds between path events, easy .. max difficulty
+  inPathChance: 0.5,
+  patterns: { asteroid: 2.5, pair: 2.5, ring: 2.2, ringRun: 1.2, swarm: 1.4, moonlet: 1, belt: 0.7, moon: 1.3 },
+  curveRadius: 110e3,    // effective planet radius at the orbit ceiling (round planet below)
+  far: 700e3,            // camera far plane at the ceiling (sees the whole limb)
+  airFade: [24000, 60000], // air -> vacuum: fog, wind noise and gusts fade over this range
+  colors: { space: 0x04060c, planetshine: 0x5d8fd8 },
 };
 
 // Altitude bands: low flying is risky but rewarded; high flying is safe from

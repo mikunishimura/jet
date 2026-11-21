@@ -5,7 +5,7 @@
 // Distance rings every 5 km around spawn mark your progress.
 import * as THREE from 'three';
 import { PALETTE, WORLD_SCALE } from '../config.js';
-import { CURVE, CURVE_GLSL } from '../render/curvature.js';
+import { CURVE_GLSL, curveUniforms } from '../render/curvature.js';
 
 /** rings spaced exponentially from 0 to `radius`: fine detail near the camera */
 export function polarDisk(radius, rings = 64, segs = 96, first = 30) {
@@ -139,7 +139,7 @@ export class Ground {
       }]),
       vertexShader: vert, fragmentShader: frag, fog: true, side: THREE.DoubleSide,
     });
-    this.material.uniforms.uCurve = CURVE;
+    curveUniforms(this.material);
     this.mesh = new THREE.Mesh(geo, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = -1;

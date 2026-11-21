@@ -27,6 +27,10 @@ export const SCHEMA = [
     { key: 'view.renderScale', type: 'range', label: 'render scale', min: 0.5, max: 1.5, step: 0.05, fmt: pct },
     { key: 'view.showFps', type: 'toggle', label: 'show fps' },
   ] },
+  { section: 'lab', items: [
+    { key: 'flags.space', type: 'toggle', label: 'space flight', hint: 'orbit',
+      title: 'on: climb past 24 km into orbit (asteroids, moons, boost rings). off: stay on earth under the 24 km ceiling. switches as soon as you are below 24 km' },
+  ] },
   { section: 'effects', items: [
     { key: 'fx.flashes', type: 'toggle', label: 'flashes & inversion', title: 'turn off for a photosensitivity-safe mode: no color inversion, dimmed white flashes' },
     { key: 'fx.intensity', type: 'range', label: 'screen effects', min: 0, max: 1, step: 0.05, fmt: pct },

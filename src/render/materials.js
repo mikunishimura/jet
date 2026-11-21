@@ -2,7 +2,7 @@
 // ink-black edge outlines, all fogged consistently with scene.fog.
 import * as THREE from 'three';
 import { PALETTE } from '../config.js';
-import { CURVE, CURVE_GLSL } from './curvature.js';
+import { CURVE_GLSL, curveUniforms } from './curvature.js';
 
 export const SUN_DIR = new THREE.Vector3(0.45, 0.78, 0.32).normalize();
 
@@ -86,7 +86,7 @@ export function labMaterial({ color = 0xffffff, emissive = 0x000000, vertexColor
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
   });
-  m.uniforms.uCurve = CURVE; // shared, live planet curvature (merge() would have cloned it)
+  curveUniforms(m); // shared, live planet curvature (merge() would have cloned it)
   return m;
 }
 
@@ -149,6 +149,6 @@ export function outlineMaterial(color = 0xffffff, widthPx = 2) {
     side: THREE.BackSide,
     fog: true,
   });
-  om.uniforms.uCurve = CURVE;
+  curveUniforms(om);
   return om;
 }

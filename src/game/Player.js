@@ -1,9 +1,10 @@
 // The player jet: stick model, turbulence, speed tiers, hull, terrain contact.
 // Emits gameplay events through `emit(type, payload)`.
 import * as THREE from 'three';
-import { FLIGHT, HEALTH, COLLISION, TIERS, ALTITUDE } from '../config.js';
+import { FLIGHT, HEALTH, COLLISION, TIERS, ALTITUDE, FLAGS, SPACE } from '../config.js';
+import { airDensity } from '../space/orbit.js';
 import { SpeedSystem } from './SpeedSystem.js';
-import { deflect3, centrality } from './Collision.js';
+import { deflect3, centrality, SPHERE } from './Collision.js';
 import { mulberry32 } from '../core/rng.js';
 import { NearMiss } from './NearMiss.js';
 
@@ -61,14 +62,16 @@ export class Player {
     this.right.set(c, 0, -s);
   }
 
-  /** Altitude band: 'low' (ground effect, under radar), 'mid', 'high' (radar exposed). */
+  /** Altitude band: 'low' (ground effect, under radar), 'mid', 'high' (radar exposed),
+   *  'space' (above the Kármán line, only with FLAGS.space). */
   get band() {
     const y = this.pos.y;
+    if (FLAGS.space && y > SPACE.edge) return 'space';
     return y < ALTITUDE.groundEffect ? 'low' : y > ALTITUDE.radar ? 'high' : 'mid';
   }
   get chargeRate() {
     const b = this.band;
-    return b === 'low' ? ALTITUDE.groundEffectCharge : b === 'high' ? ALTITUDE.radarCharge : 1;
+    return b === 'low' ? ALTITUDE.groundEffectCharge : b === 'high' ? ALTITUDE.radarCharge : b === 'space' ? SPACE.chargeRate : 1;
   }
 
   /** Stick model shared by both axes: ramp while held, fast return when released. */
@@ -134,7 +137,9 @@ export class Player {
     const tau = FLIGHT.gustTau;
     const g = this.gauss();
     this.gust += (-this.gust / tau) * dt + Math.sqrt((2 * dt) / tau) * g;
-    const turbRate = sys.engaged ? this.gust * tier.turbulence * (1 + 0.5 * sys.charge) : 0;
+    // thinner air, weaker gusts: in vacuum only a little 'solar wind' is left
+    const air = FLAGS.space ? SPACE.turbulence + (1 - SPACE.turbulence) * airDensity(this.pos.y) : 1;
+    const turbRate = sys.engaged ? this.gust * tier.turbulence * (1 + 0.5 * sys.charge) * air : 0;
 
     this.heading += (yawRate + turbRate) * dt;
     this.throttle = ctl.throttle;
@@ -179,7 +184,7 @@ export class Player {
     }
 
     // gates / triggers
-    const crossed = world.crossedTriggers(this.prevPos.x + ox, this.prevPos.z + oz, this.pos.x + ox, this.pos.z + oz, [], this.pos.y);
+    const crossed = world.crossedTriggers(this.prevPos.x + ox, this.prevPos.z + oz, this.pos.x + ox, this.pos.z + oz, [], this.pos.y, this.prevPos.y);
     for (const tr of crossed) this.emit('trigger', tr);
   }
 
@@ -196,7 +201,10 @@ export class Player {
     if (!isGround) this.nearMiss.touch(hit.collider);
     // push out of the obstacle
     if (isGround) this.pos.y += hit.ground;
-    else {
+    else if (hit.collider.kind === SPHERE) {
+      // floating obstacle: out along the full 3D normal (over, under or around it)
+      this.pos.x += nx * (depth + 0.5); this.pos.y += ny * (depth + 0.5); this.pos.z += nz * (depth + 0.5);
+    } else {
       // depth is horizontal penetration: push out along the horizontal normal
       const hl = Math.hypot(nx, nz) || 1;
       this.pos.x += (nx / hl) * (depth + 0.5); this.pos.z += (nz / hl) * (depth + 0.5);

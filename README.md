@@ -42,7 +42,7 @@ The first Mach change comes about 0.5 s after launch. `tierLevel()` maps any tie
 **Speed and scale.** All speeds are 20× the original tuning (`SPEED_SCALE`). To keep that playable, the far field (terrain, path obstacles, view distance, fog, event spacing, cloud deck) scales by `WORLD_SCALE` = 20, so time-to-contact stays human (about 5 s of warning at tier V). The near field (flight altitude, ground grid, camera) keeps its size, so speed *feels* 20× faster. The ground grid fades out line spacings that would strobe at the current speed. Combat (enemies, bullets, missiles, their effects) runs in the player's moving frame and is not scaled. **FOV** grows continuously with Mach on a log scale (`FOV` in `src/config.js`), roughly 66° at M8 to 112° at M110.
 
 - **Straight means 3D straight.** Climbing or diving breaks the line just like turning. The large HUD ring is your tolerance window (it turns red and dashed when you're off the line, and an arc around it shows the barrier charge); keep the small aim ring inside it.
-- **Altitude** (log-scale altimeter on the right): fly anywhere from the floor (6 m) to the **24 km containment ceiling**, far above the **cloud deck at 8 km**. The deck is real geometry: you can punch through it and fly over it. You spawn midway in the **obstacle band** (6–1,500 m, ~750 m), where the rocks and path events are. Below 60 m you get ground effect (barriers ×1.3, fewer waves) but solid rubble. Above 1,000 m radar exposes you (waves ~1.7× as often, up to 2 extra hostiles, barriers ×0.75), so the open sky is safe from rocks but hot with enemies. Pinned against the ceiling or resting on the floor, the nose levels and vertical velocity is zero, so nothing that flies in your frame drifts.
+- **Altitude** (log-scale altimeter on the right): fly anywhere from the floor (6 m) to the **24 km containment ceiling** (or on into orbit with space flight, see below), far above the **cloud deck at 8 km**. The deck is real geometry: you can punch through it and fly over it. You spawn midway in the **obstacle band** (6–1,500 m, ~750 m), where the rocks and path events are. Below 60 m you get ground effect (barriers ×1.3, fewer waves) but solid rubble. Above 1,000 m radar exposes you (waves ~1.7× as often, up to 2 extra hostiles, barriers ×0.75), so the open sky is safe from rocks but hot with enemies. Pinned against the ceiling or resting on the floor, the nose levels and vertical velocity is zero, so nothing that flies in your frame drifts.
 - **The world is round (visually).** Every world vertex is lowered by d²/2R around the camera. R ≈ 2,500 km near the floor (flat, with slightly rounded far edges where things rise over the horizon) and R ≈ 300 km at the ceiling (clearly a sphere). See `src/render/curvature.js`. Collisions stay flat.
 - **Ground contact** follows the same rule as rocks: dive more than ~20° into the floor and it's a head-on hit; skim it and you just scrape along.
 - **The map is built for long, mostly straight runs.** Open plains, with rock fields and mountain ridges only inside rare mountain regions (never in the first ~4 km). Obstacles come **down your path**: every ~5–9 s of flight (time-based, so the rhythm is the same at any tier) a structure appears ahead on your current heading, about half on your line and half near misses. Many reward holding your line: spire pairs you thread, gates on the line. Walls with a gap appear from tier III (or at high difficulty). Mountain vistas off to the side are just scenery. Tune it in `WORLD_DENSITY` and `PATH` in `src/config.js`.
@@ -60,9 +60,38 @@ A terminal-style settings window: **O**, the `[ settings ]` buttons on the menu 
 - **Audio:** mute, master volume, engine & wind bus, effects bus.
 - **Controls:** mouse sensitivity, invert Y, auto-recenter on/off, recenter delay.
 - **View:** chase or cockpit camera, field-of-view offset (±15°), render scale (50–150 %, for performance), show FPS.
+- **Lab:** *space flight* feature flag (see below).
 - **Effects:** *flashes & inversion* (turn off for a photosensitivity-safe mode: no color inversion anywhere, white flashes dimmed), screen-effect intensity, camera shake, speed blur.
 
 Adding a setting takes a default in `DEFAULTS` plus one row in `SCHEMA` (`src/ui/SettingsPanel.js`), applied in `Game.applySettings()`.
+
+## Space flight (feature flag, on by default)
+
+With `FLAGS.space` on, the 24 km ceiling opens up into orbit (150 km ceiling). Turn it off to keep the player on earth, exactly as before.
+
+- **Climb out:** above 24 km the sky deepens, the high clouds thin out and the pale horizon slides down onto the planet's limb. At the **Kármán line (60 km)** the sky is black: three sizes of crisp stars, a faint galaxy band, a harder sun, and a thin atmosphere rim glowing over the planet's edge. Looking down you see the white lab planet, grid and cloud deck curving away below you.
+- **Obstacles:** above 64 km, the events down your path are orbital: single asteroids (on your line or a near miss above, below or beside you), pairs to thread, 3D swarms, belt walls with one hole, moonlets in your way and huge cratered moons as scenery. Everything tumbles slowly. A streamed asteroid field (70–146 km, denser in belts) fills the rest of the volume.
+- **Boost rings:** the survey gates of orbit. Fly through one for +500 and +35 % barrier charge; the ring flashes white. *Ring runs* line up three in a row.
+- **Physics:** asteroids and moons are floating sphere colliders. Hit one from above and you slide over it; pass close above or below and it counts as a near miss. In vacuum the gusts fall to 35 % (solar wind) and there is no radar penalty. Wind noise fades and the engine goes muffled.
+- **HUD:** flips to white on black above about 40 km. The altimeter marks the Kármán line and shows an `orbit` band.
+
+**The flag.** Precedence: URL > setting > default (`src/core/flags.js`).
+- **URL:** `?space=off` / `?space=on`.
+- **Setting:** **settings → lab → space flight**.
+- **Default:** `FLAGS.space` in `src/config.js`.
+
+The game applies a change right away when that can't move you. Turning it off while you are above 24 km waits until you come back down; a new flight always applies it.
+
+**How it stays switchable.** All of it lives in `src/space/`.
+- `Game.syncFlags` creates a `Space` object when the flag is on and disposes it when it is off.
+- `Space` plugs an asteroid field layer into `World` (`World.addLayer`) and hands `PathHazards` its orbital patterns.
+- It also drives the sky / ground / cloud / fog / far-plane / audio parameters through `orbit.js`. Those helpers return the earth values below 24 km.
+
+With the flag off none of this is created. The ceiling is `FLIGHT.earthCeiling`, the curvature is unchanged, and the sky's orbit uniform stays at 0.
+
+**Planet vs orbit curvature.** The planet's shell bends (ground, clouds, terrain). Objects in orbit are not attached to it, so curvature fades out between 26 and 52 km (`CURVE_FADE`): what you see ahead in space is where it really is.
+
+Add an orbital pattern in `src/space/patterns.js` and give it a weight in `SPACE.patterns` (`src/config.js`).
 
 ## Skins
 
@@ -108,15 +137,23 @@ src/
   config.js              every tuning number
   game/
     SpeedSystem.js       pure tier state machine (unit-tested)
-    Collision.js         circle (height-profiled) / capsule colliders, 3D normals, head-on vs edge (unit-tested)
+    Collision.js         circle (height-profiled) / capsule / floating sphere colliders, 3D normals, head-on vs edge (unit-tested)
     Player.js            stick model, gusts, hull, terrain contact with substeps
     Game.js              loop, events → FX/audio/HUD, director, floating origin, scoring
     Autopilot.js         attract mode + automated playtests
     Aim.js               mouse look/aim offset (pure; never touches the trajectory)
   core/Settings.js       player settings: defaults, sanitizing, persistence, change events
   ui/SettingsPanel.js    terminal settings window / pause screen (schema-driven)
+  space/                 space flight (FLAGS.space): created / disposed as a unit
+    Space.js             the facade Game creates: field layer, orbital hazards, sky/planet/fog/far-plane/audio
+    SpaceField.js        World layer streaming 10 km columns of tumbling asteroids (+ rare moons)
+    bodies.js            asteroid / cratered-moon archetypes; SpaceBuilder (spinning merged mesh, rings)
+    patterns.js          orbital path events (asteroids, pairs, rings, ring runs, swarms, belts, moons)
+    materials.js         vacuum-lit bodies, spinning silhouette rim, striped boost rings
+    orbit.js             pure altitude helpers: air density, sky blend, limb, far plane
+  core/flags.js          feature-flag resolution (URL > setting > default)
   world/
-    World.js             chunk streaming (forward cone, 4 ms/frame budget), collision + ray queries
+    World.js             chunk streaming (forward cone, 4 ms/frame budget), collision + ray queries, layers
     PathHazards.js       paced obstacle events down the player's path (pattern table)
     ChunkBuilder.js      bakes each chunk into 1 mesh + 1 edge-line draw call
     rocks.js             procedural rock archetypes with silhouette profiles for exact colliders

@@ -1,6 +1,8 @@
 // Orchestrates systems, the frame loop, game state, director, scoring.
 import * as THREE from 'three';
-import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV, AMBIENT } from '../config.js';
+import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV, AMBIENT, FLAGS, SPACE } from '../config.js';
+import { resolveFlag } from '../core/flags.js';
+import { Space } from '../space/Space.js';
 import { Settings } from '../core/Settings.js';
 import { SettingsPanel } from '../ui/SettingsPanel.js';
 
@@ -83,6 +85,8 @@ export class Game {
     this.hud = new HUD(this);
     // player settings: applied live, persisted; the panel doubles as the pause screen
     this.settings = new Settings();
+    this.space = null;          // space flight (FLAGS.space): created / disposed by syncFlags
+    this.flagsPending = false;
     this.paused = false;
     this.settingsPanel = new SettingsPanel(this.settings, { onClose: () => this.closeSettings() });
     this.settings.onChange(() => this.applySettings());
@@ -122,12 +126,15 @@ export class Game {
     this.projectiles.orb(p.pos.clone(), p.forward.clone(), 0);
     const pk = this.pickups.spawn('repair');
     tmp.forEach((t, i) => { t.position.set(p.pos.x + i * 20, p.pos.y, p.pos.z - 60); this.scene.add(t); });
+    const orbit = this.space?.warmupObject(p.pos);
+    if (orbit) this.scene.add(orbit);
     patchTree(this.scene); // planet curvature on built-in materials before they compile
     this.renderer.compile(this.scene, this.camera);
     this.renderer.setRenderTarget(this.post.target);
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(null);
     tmp.forEach((t) => this.scene.remove(t));
+    if (orbit) this.scene.remove(orbit);
     this.projectiles.reset();
     this.pickups.reset();
     void m; void e; void pk;
@@ -153,6 +160,30 @@ export class Game {
     if (Math.abs(this.renderer.getPixelRatio() - pr) > 1e-3) { this.renderer.setPixelRatio(pr); this.resize(); }
     Object.assign(this.fx.prefs, v.fx);
     this.hud.showFps = v.view.showFps;
+    this.syncFlags();
+  }
+
+  /**
+   * Latch feature flags (URL > setting > default) into FLAGS and build / tear
+   * down what they gate. A change that would teleport you (space off while
+   * you are above the earth ceiling) waits until you are back below it.
+   */
+  syncFlags(force = false) {
+    const want = resolveFlag('space', { setting: this.settings.get('flags.space') });
+    if (want === FLAGS.space && want === !!this.space) { this.flagsPending = false; return; }
+    const live = this.state === 'playing' && !this.attract;
+    if (!force && !want && this.player.pos.y > FLIGHT.earthCeiling) {
+      if (!this.flagsPending && live) this.hud.toast(`SPACE FLIGHT OFF · BELOW ${FLIGHT.earthCeiling / 1000} KM`, 'info');
+      this.flagsPending = true;
+      return;
+    }
+    this.flagsPending = false;
+    FLAGS.space = want;
+    if (want && !this.space) this.space = new Space(this);
+    if (!want && this.space) { this.space.dispose(); this.space = null; }
+    if (live && !force) this.hud.toast(want ? 'SPACE FLIGHT ON · CLIMB INTO ORBIT' : 'SPACE FLIGHT OFF', 'info');
+    const note = document.getElementById('ceiling-note');
+    if (note) note.textContent = want ? `past the clouds, past ${FLIGHT.earthCeiling / 1000} km, into orbit (${SPACE.ceiling / 1000} km)` : `past the clouds to the ${FLIGHT.earthCeiling / 1000} km ceiling`;
   }
 
   openSettings() {
@@ -176,6 +207,7 @@ export class Game {
 
   reset(seed) {
     this.seed = seed;
+    this.syncFlags(true); // a new flight always lands pending flag changes
     this.world.reset(seed);
     this.hazards.reset();
     this.difficulty = 0;
@@ -290,7 +322,8 @@ export class Game {
         break;
       }
       case 'trigger':
-        if (e.type === 'gate') {
+        if (e.type === 'gate' || e.type === 'ring') {
+          if (e.material) e.material.uniforms.uPass.value = this.time; // the ring flashes white
           const s = p.speedSys;
           if (s.next) s.charge = Math.min(0.98, s.charge + 0.35);
           this.stats.gateScore += 500;
@@ -302,7 +335,7 @@ export class Game {
             vx: (Math.random() - 0.5) * 260, vy: 60 + Math.random() * 160, vz: (Math.random() - 0.5) * 260,
             life: 0.5 + Math.random() * 0.4, size: 2.5 + Math.random() * 2.5, color: PALETTE.ink, shape: SHAPE.SQUARE, drag: 2.2,
           }));
-          if (!this.attract) this.hud.toast('SURVEY GATE +500 · BARRIER +35%', 'good');
+          if (!this.attract) this.hud.toast(`${e.type === 'ring' ? 'BOOST RING' : 'SURVEY GATE'} +500 · BARRIER +35%`, 'good');
         }
         break;
       case 'nearMiss': {
@@ -319,7 +352,7 @@ export class Game {
         break;
       }
       case 'ceiling':
-        if (!this.attract) this.hud.toast(`CONTAINMENT CEILING · ${FLIGHT.ceiling} m`, 'warn');
+        if (!this.attract) this.hud.toast(FLAGS.space ? `ORBIT CEILING · ${FLIGHT.ceiling / 1000} KM` : `CONTAINMENT CEILING · ${FLIGHT.ceiling} m`, 'warn');
         break;
       case 'death':
         this.audio.death();
@@ -460,11 +493,12 @@ export class Game {
     if (this.state === 'playing' && !this.attract && !this.useAutopilot && p.alive) this.aim.update(dt, ctl, this.weapons.firing);
     else this.aim.reset();
 
+    if (this.flagsPending) this.syncFlags();
     p.update(dt, ctl, this.world);
     this.rebaseIfNeeded();
     const ox = this.world.origin.x, oz = this.world.origin.z;
     const absX = p.pos.x + ox, absZ = p.pos.z + oz;
-    this.world.update(absX, absZ, p.flatForward.x, p.flatForward.z, p.speedSys.tier, this.time);
+    this.world.update(absX, absZ, p.flatForward.x, p.flatForward.z, p.speedSys.tier, this.time, p.pos.y);
     this.hazards.update(dt, p, this.difficulty || 0);
 
     this.weapons.update(dt, p.alive ? ctl : {});
@@ -477,7 +511,9 @@ export class Game {
     if (p.alive && !this.attract && p.speedSys.engaged) {
       const band = p.band;
       if (band !== this.lastBand) {
-        if (band === 'high') this.hud.toast('RADAR EXPOSED · MORE HOSTILES', 'danger');
+        if (band === 'space') { this.vaporRing(); this.hud.toast('KÁRMÁN LINE · ORBIT · ASTEROID FIELD', 'good'); }
+        else if (this.lastBand === 'space') { this.vaporRing(); this.hud.toast('RE-ENTRY · RADAR EXPOSED', 'danger'); }
+        else if (band === 'high') this.hud.toast('RADAR EXPOSED · MORE HOSTILES', 'danger');
         else if (band === 'low') this.hud.toast(`GROUND EFFECT · BARRIER ×${ALTITUDE.groundEffectCharge}`, 'good');
         this.lastBand = band;
       }
@@ -521,6 +557,7 @@ export class Game {
     this.ground.update(this.camera, this.world.origin, s.speed);
     this.sky.update(this.camera, this.world.origin, this.time, (s.level - 1) / 4, p.flatForward, s.speed);
     this.clouds.update(this.camera, this.world.origin, this.time, p.flatForward, s.speed);
+    this.space?.update(this.time); // orbit: sky, planet disks, fog, far plane (no-op on earth)
     this.ambient.update(dt, amb);
     updateCurvature(this.camera.position.y); // the higher you are, the rounder the world
     patchTree(this.scene);                   // newly spawned built-in materials get curvature too
@@ -570,6 +607,9 @@ export class Game {
       pickup() { return !!g.pickups.spawn('repair'); },
       god(on = true) { g.god = on; },
       autopilot(on = true) { g.useAutopilot = on; },
+      /** teleport to an altitude (m), e.g. debug.altitude(90000) for orbit */
+      altitude(y) { const p = g.player; p.pos.y = p.prevPos.y = Math.min(FLIGHT.ceiling, Math.max(FLIGHT.minAltitude, y)); p.pitch = 0; p.updateBasis(); },
+      orbitEvent(kind) { return g.hazards.space ? g.hazards.spawnOrbit(g.player, g.difficulty || 0, kind) : false; },
       info() {
         const i = g.renderer.info;
         return { fps: +g.perf.fps.toFixed(1), worstMs: +((g.perf.lastWorst || 0) * 1000).toFixed(1), calls: i.render.calls, tris: i.render.triangles,

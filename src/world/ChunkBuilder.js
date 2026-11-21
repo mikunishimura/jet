@@ -153,4 +153,4 @@ export class ChunkBuilder {
     return group;
   }
 }
-export { UP };
+export { UP, smoothNormals };

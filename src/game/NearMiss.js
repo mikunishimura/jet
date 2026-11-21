@@ -2,7 +2,7 @@
 // barrier. Pure (no three.js): unit-tested. Clearance is measured from the hull
 // to the collider's surface at your altitude, tracked while the obstacle is
 // ahead or abreast, and judged once it falls behind.
-import { CIRCLE, radiusAt } from './Collision.js';
+import { CIRCLE, SPHERE, radiusAt } from './Collision.js';
 import { NEAR_MISS, FLIGHT } from '../config.js';
 
 /** Near-miss window (m of clearance) at a given speed: constant reaction time. */
@@ -10,6 +10,8 @@ export function nearMissThreshold(speed) { return NEAR_MISS.base + NEAR_MISS.per
 
 /** Hull-to-surface clearance (m) at height y, or Infinity when the obstacle isn't at that height. */
 export function clearance(c, px, py, pz, pr = FLIGHT.playerRadius) {
+  // floating spheres: you can pass over or under them, so measure in 3D
+  if (c.kind === SPHERE) return Math.max(0, Math.hypot(px - c.x, py - c.y, pz - c.z) - c.r - pr);
   const yc = Math.min(c.top, Math.max(c.bottom, py));
   if (py > c.top + pr || py < c.bottom - pr) return Infinity;
   const r = radiusAt(c, yc);

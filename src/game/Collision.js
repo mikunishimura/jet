@@ -1,6 +1,7 @@
 // Collider primitives: vertical shapes whose horizontal cross-section can vary
 // with height. Features build any shape out of circles (rocks, peaks: with a
-// radius-at-height profile) and capsules (walls, pillars, beams). Contacts
+// radius-at-height profile) and capsules (walls, pillars, beams), plus free
+// spheres for things that float (asteroids, moons, ring segments). Contacts
 // return a 3D surface normal so the jet can slide over a mountain's flank.
 // Pure math, unit-testable.
 
@@ -8,6 +9,7 @@ import { COLLISION } from '../config.js';
 
 export const CIRCLE = 0;
 export const CAPSULE = 1;
+export const SPHERE = 2;
 
 /**
  * @param rAt optional (y) => cross-section radius at height y (surface of
@@ -23,9 +25,15 @@ export function capsule(ax, az, bx, bz, r, top = Infinity, bottom = -Infinity, t
     x: (ax + bx) / 2, z: (az + bz) / 2, br: Math.hypot(bx - ax, bz - az) / 2 + r };
 }
 
+/** A free-floating sphere (top/bottom keep every vertical broad-phase check valid). */
+export function sphere(x, y, z, r, tag = 'asteroid') {
+  return { kind: SPHERE, x, y, z, r, top: y + r, bottom: y - r, tag, rAt: null };
+}
+
 /** Cross-section radius of a collider at height y (0 = nothing there). */
 export function radiusAt(c, y) {
   if (y > c.top || y < c.bottom) return 0;
+  if (c.kind === SPHERE) { const dy = y - c.y; return Math.sqrt(Math.max(0, c.r * c.r - dy * dy)); }
   return c.rAt ? c.rAt(y) : c.r;
 }
 
@@ -35,6 +43,14 @@ export function radiusAt(c, y) {
  */
 export function contact(c, px, py, pz, pr) {
   if (py > c.top + pr || py < c.bottom - pr) return null;
+  if (c.kind === SPHERE) {
+    // true 3D contact: `depth` is along the 3D normal (the player pushes out along it)
+    const ox = px - c.x, oy = py - c.y, oz = pz - c.z;
+    const d = Math.hypot(ox, oy, oz), rr = c.r + pr;
+    if (d >= rr) return null;
+    if (d < 1e-6) return { nx: 0, ny: 1, nz: 0, depth: rr, collider: c };
+    return { nx: ox / d, ny: oy / d, nz: oz / d, depth: rr - d, collider: c };
+  }
   let qx, qz;
   if (c.kind === CIRCLE) { qx = c.x; qz = c.z; }
   else {
