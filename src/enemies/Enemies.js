@@ -27,6 +27,9 @@ class Enemy {
     this.flash = 0;
     this.leaving = false;
     this.lockAngle = 9; this.dist = 1e9;
+    // body materials that can flash white when hit (labMaterial's uFlash)
+    this.flashMats = [];
+    mesh.traverse((o) => { if (o.material?.uniforms?.uFlash) this.flashMats.push(o.material); });
     game.scene.add(mesh);
   }
   /** spring toward station expressed in player frame */
@@ -68,6 +71,8 @@ class Enemy {
       if (hit) this.die('crash');
     }
     if (this.flash > 0) this.flash -= dt;
+    const f = Math.max(0, this.flash) / 0.09;
+    for (const m of this.flashMats) m.uniforms.uFlash.value = f * 0.85;
   }
   faceVelocity(relativeToPlayer = false, bankScale = 0.002) {
     const p = this.game.player;
@@ -79,11 +84,15 @@ class Enemy {
     this.mesh.rotateZ(Math.max(-0.9, Math.min(0.9, -lateral * bankScale)));
     return yawBefore;
   }
-  damage(n, source) {
+  /** at: world hit point (for the hit effect / damage number) */
+  damage(n, source, at = null) {
     if (!this.alive) return;
+    const dealt = Math.min(n, this.hp);
     this.hp -= n;
-    this.flash = 0.06;
-    if (this.hp <= 0) this.die(source);
+    this.flash = 0.09;
+    const kill = this.hp <= 0;
+    this.game.onEnemyHit?.(this, dealt, source, at || this.pos, kill);
+    if (kill) this.die(source);
   }
   die(cause) {
     if (!this.alive) return;

@@ -192,9 +192,22 @@ export class Audio {
   }
   overheat() { this.noiseBurst({ dur: 0.8, gain: 0.25, type: 'highpass', freq: 4000, freqEnd: 800 }); }
   click() { this.tone({ freq: 1200, dur: 0.04, gain: 0.1, type: 'square' }); }
-  missileLaunch() { this.noiseBurst({ dur: 0.7, gain: 0.35, type: 'bandpass', freq: 600, freqEnd: 3000, q: 1.5, attack: 0.02 }); }
+  missileLaunch(kill = false) {
+    if (kill) { this.noiseBurst({ dur: 0.25, gain: 0.45, type: 'highpass', freq: 1800, freqEnd: 6000, attack: 0.002 }); this.tone({ freq: 2400, freqEnd: 600, dur: 0.18, gain: 0.06, type: 'sawtooth' }); return; }
+    this.noiseBurst({ dur: 0.7, gain: 0.35, type: 'bandpass', freq: 600, freqEnd: 3000, q: 1.5, attack: 0.02 });
+  }
   enemyMissile() { this.tone({ freq: 880, dur: 0.12, gain: 0.12, type: 'square' }); this.tone({ freq: 880, dur: 0.12, gain: 0.12, type: 'square', delay: 0.2 }); this.tone({ freq: 880, dur: 0.12, gain: 0.12, type: 'square', delay: 0.4 }); }
-  missileWarning() { this.tone({ freq: 1320, dur: 0.06, gain: 0.07, type: 'square' }); }
+  /** level 0..1: higher, louder and (via the caller) faster as the impact closes in */
+  missileWarning(level = 0.5) { this.tone({ freq: 900 + 900 * level, dur: 0.05 + 0.03 * level, gain: 0.05 + 0.08 * level, type: 'square' }); }
+  flares() {
+    this.noiseBurst({ dur: 0.5, gain: 0.35, type: 'bandpass', freq: 2500, freqEnd: 900, q: 1.2 });
+    for (let i = 0; i < 3; i++) this.noiseBurst({ dur: 0.08, gain: 0.25, type: 'highpass', freq: 3000, delay: i * 0.06 });
+  }
+  /** confirmed gun hit: a short dry tick (pitch up a little for heavier hits) */
+  hitTick(k = 0.5) { this.tone({ freq: 1900 + 700 * k, freqEnd: 1100, dur: 0.035, gain: 0.07, type: 'triangle' }); }
+  /** lock building on a target: p = progress 0..1 */
+  lockTick(p) { this.tone({ freq: 520 + 900 * p, dur: 0.035, gain: 0.05, type: 'sine' }); }
+  lockOn() { this.tone({ freq: 1500, dur: 0.07, gain: 0.08, type: 'square' }); this.tone({ freq: 2100, dur: 0.09, gain: 0.07, type: 'square', delay: 0.07 }); }
   enemyGun(dist) { const f = this.falloff(dist, 600); if (f > 0.05) this.noiseBurst({ dur: 0.04, gain: 0.15 * f, type: 'bandpass', freq: 2600, q: 2 }); }
   plasma(dist) { const f = this.falloff(dist, 900); this.tone({ freq: 300, freqEnd: 900, dur: 0.25, gain: 0.12 * f + 0.02, type: 'triangle' }); }
   explosion(dist, size = 1) {

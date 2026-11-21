@@ -21,13 +21,17 @@ URL flags: `?autopilot` (the bot flies), `?god` (enemy fire does no damage). Con
 | **S** hold | bleed charge, then drop one tier every 0.75 s (down to I) |
 | **Space** / **Shift** hold | climb / dive (also **↑ / ↓**). Release and the nose auto-levels at the new altitude. A **W** tap snaps you level and straight |
 | **Mouse** | look + aim (pointer lock: click the game). Never steers the jet: the camera orbits / your head turns, and the crosshair is where shots go. Eases back to forward after ~1.6 s idle; **Q** / middle mouse snaps back |
-| **LMB** / **J** | minigun down the crosshair (both guns converge on it). Assist leads a target only within ~14° of the crosshair (crosshair turns red). Overheats after ~3 s |
-| **RMB** / **K** | salvo of 4 homing missiles on the locks nearest the crosshair; with no lock they fly straight down the crosshair (8 max, they reload) |
+| **LMB** / **J** | minigun down the crosshair (both guns converge on it): 11 heavy rounds/s at 6.5 km/s. Assist leads a target only within ~14° of the crosshair (crosshair turns red). Overheats after ~3 s of fire and clears in about a second. Every hit pops a damage number at the hit point (gun hits on one target stack), flashes the enemy white and ticks a hit marker on the crosshair (red on a kill) |
+| **RMB** / **K** hold → release | **lock-on**. While held, keep the crosshair on an enemy (within 5° of it) and a ring charges around it over 0.75 s. The fill is slow at first and fast at the end. Then move to the next one (up to 4, and never more than the missiles you have). A slip under 0.3 s keeps the progress. **Release** fires one hypersonic **kill missile** per lock (5.2 km/s, out in a 35 ms ripple). A lock is a guaranteed kill, usually within 0.1–0.2 s of release, whatever the target's hull. With nothing locked, a regular pair flies straight down the crosshair (8 max, they reload) |
+| **F** | **flares**: decoy every incoming missile due to hit within 3.2 s while they burn. Fire too early and they're wasted. 3 charges, one back every 5 s |
 | **C** | chase camera (default: far behind, horizon never tilts) ↔ cockpit POV (banks with the stick). Remembered |
 | **M** | mute |
 | **O** / **Esc** | settings. Esc mid-flight (it releases the mouse) pauses the game with the settings window; Esc or `[ resume ]` continues |
 
 ## Mechanics (all numbers in `src/config.js`)
+
+**Incoming missiles** (`THREATS`, `src/combat/Countermeasures.js`) are ranked by time to impact (distance / closing speed). From 5 s out, a red arc on a ring around the screen center points at each missile, with a glow creeping in from that screen edge and a beep. The closer the impact, the longer and heavier the arc, the faster it blinks, the stronger the glow, and the faster and higher the beep. The missile's own marker grows and shows the seconds left. Under 1.6 s the HUD calls **break · f flares**.
+
 
 | Tier | Name | Speed | Mach | Hold the line within | For |
 |---|---|---|---|---|---|
@@ -172,7 +176,7 @@ src/
     JetModel.js          third-person airframe transform, exhaust, contrails, live skin swap
     skins.js             airframe skins (B-2 Spirit, Lab Interceptor)
     Cockpit.js, SpeedLines.js, Particles.js, materials.js
-  combat/                Projectiles (tracers, missiles, plasma), Weapons (lock + aimbot)
+  combat/                Projectiles (tracers, missiles, plasma), Weapons (hold-to-lock + aim assist), Countermeasures (threats + flares)
   enemies/               Ufo, Drone, Fighter: flown in the player's frame, climb over terrain
   pickups/               type table (add new gadgets with one entry)
   ui/HUD.js              minimal ink HUD + canvas overlay (aim/line rings, rounded red target boxes, altimeter)

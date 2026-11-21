@@ -117,8 +117,7 @@ export class Projectiles {
         for (const e of enemies) {
           if (!e.alive) continue;
           if (segSphere(prev, b.p, e.pos, e.radius + 2)) {
-            e.damage(b.damage, 'gun');
-            sparks(fx, b.p.x, b.p.y, b.p.z, 2, 0xff3b30);
+            e.damage(b.damage, 'gun', b.p);
             dead = true; break;
           }
         }
@@ -134,7 +133,7 @@ export class Projectiles {
     for (let i = 0; i < n; i++) {
       const b = this.bullets[i];
       // streak never longer than the distance flown: no tail poking back through the jet
-      const len = Math.min(b.owner === 'player' ? 0.022 : 0.035, b.age);
+      const len = Math.min(b.owner === 'player' ? 0.01 : 0.035, b.age); // player rounds are 6.5 km/s: ~65 m streaks
       P[i * 6] = b.p.x; P[i * 6 + 1] = b.p.y; P[i * 6 + 2] = b.p.z;
       P[i * 6 + 3] = b.p.x - b.rv.x * len; P[i * 6 + 4] = b.p.y - b.rv.y * len; P[i * 6 + 5] = b.p.z - b.rv.z * len;
       C[i * 6] = b.color.r; C[i * 6 + 1] = b.color.g; C[i * 6 + 2] = b.color.b;
@@ -151,7 +150,8 @@ export class Projectiles {
       if (m.owner === 'player') {
         if (m.target && !m.target.alive) m.target = g.weapons.retarget(m);
         if (m.target) { tgtPos = m.target.pos; tgtRv = m.target.vel.clone().sub(pv); }
-      } else if (player.alive) { tgtPos = player.pos; tgtRv = new THREE.Vector3(); }
+      } else if (m.decoy) { tgtPos = m.decoy.p; tgtRv = m.decoy.rv; }   // pulled off by a flare
+      else if (player.alive) { tgtPos = player.pos; tgtRv = new THREE.Vector3(); }
       m.speed = Math.min(m.relSpeed, m.speed + m.accel * dt);
       if (tgtPos && m.age > m.armDelay) {
         const dist = _d.subVectors(tgtPos, m.p).length();
@@ -174,11 +174,11 @@ export class Projectiles {
       const prev = m.p.clone().addScaledVector(m.rv, -dt);
       m.mesh.lookAt(_v.copy(m.p).sub(m.rv)); // nose is -Z
       // trail: hollow square dots that stay put in the player's frame
-      if (m.age > 0.15) {
+      if (m.age > (m.kill ? 0.02 : 0.15)) {
         for (let k = 0; k < 2; k++) {
           const t = k / 2;
           fx.normal.emit({ x: prev.x + (m.p.x - prev.x) * t, y: prev.y + (m.p.y - prev.y) * t, z: prev.z + (m.p.z - prev.z) * t, rel: true,
-            life: 0.5, size: 1.8, color: m.owner === 'player' ? 0x8d939a : 0xff3b30, shape: SHAPE.BOX });
+            life: m.kill ? 0.3 : 0.5, size: m.kill ? 2.6 : 1.8, color: m.kill ? 0x15171a : m.owner === 'player' ? 0x8d939a : 0xff3b30, shape: m.kill ? SHAPE.SQUARE : SHAPE.BOX });
         }
       }
       let boom = m.life <= 0 || m.p.y < 1;
@@ -214,10 +214,12 @@ export class Projectiles {
     explosion(g.particles, m.p.x, m.p.y, m.p.z, m.owner === 'player' ? 0.8 : 0.65, m.owner === 'player' ? 0x15171a : 0xff3b30);
     g.audio.explosion(m.p.distanceTo(g.player.pos), 0.6);
     if (m.owner === 'player') {
+      // kill missile: the locked target dies, whatever its hull
+      if (m.kill && m.target?.alive && m.target.pos.distanceTo(m.p) < m.prox + m.target.radius + 20) m.target.damage(m.target.hp, 'missile', m.p);
       for (const e of g.enemies.list) {
         if (!e.alive) continue;
         const d = e.pos.distanceTo(m.p);
-        if (d < m.splash + e.radius) e.damage(m.damage * (1 - 0.5 * d / (m.splash + e.radius)), 'missile');
+        if (d < m.splash + e.radius) e.damage(m.damage * (1 - 0.5 * d / (m.splash + e.radius)), 'missile', m.p);
       }
     } else if (g.player.alive) {
       const d = g.player.pos.distanceTo(m.p);

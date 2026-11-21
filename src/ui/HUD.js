@@ -2,7 +2,8 @@
 // straight-line ring, rounded red target boxes, off-screen chevrons, pickups,
 // a hairline altimeter. Palette: ink + grays, red only for hostiles/danger.
 import * as THREE from 'three';
-import { TIERS, MACH_FACTOR, DEG, WEAPONS, FLIGHT, ALTITUDE, FLAGS, SPACE } from '../config.js';
+import { TIERS, MACH_FACTOR, DEG, WEAPONS, FLIGHT, ALTITUDE, FLAGS, SPACE, THREATS } from '../config.js';
+import { lockDisplay } from '../combat/Weapons.js';
 import { curveDrop } from '../render/curvature.js';
 import { DECK_ALTITUDE } from '../world/Clouds.js';
 
@@ -40,6 +41,8 @@ export class HUD {
     this.el = { stats: $('h-stats'), speed: $('h-speed'), hull: $('h-hullbox'), weapons: $('h-weapons'), log: $('log'), big: $('bigtext') };
     this.last = {};
     this.toastTimes = new Map();
+    this.numbers = [];                  // floating damage numbers
+    this.hitMark = { t: -9, kill: false };
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -62,6 +65,22 @@ export class HUD {
     while (this.el.log.children.length > 5) this.el.log.firstChild.remove();
     setTimeout(() => d.remove(), 3300);
   }
+  /** a hit on an enemy: floating number at the hit point (gun hits on one target stack) */
+  damageNumber(e, amount, at, kill, source) {
+    const now = this.game.time;
+    let n = null;
+    for (let i = this.numbers.length - 1; i >= 0; i--) {
+      const c = this.numbers[i];
+      if (c.e === e && !c.kill && source === 'gun' && c.source === 'gun' && now - c.t0 < 0.4) { n = c; break; }
+    }
+    if (n) { n.value += amount; n.t0 = now; n.pop = now; n.kill = kill; n.off.subVectors(at, e.pos); }
+    else {
+      this.numbers.push({ e, value: amount, off: at.clone().sub(e.pos), anchor: at.clone(), t0: now, pop: now, kill, source, side: Math.random() - 0.5 });
+      if (this.numbers.length > 24) this.numbers.shift();
+    }
+    this.hitMark = { t: now, kill: kill || this.hitMark.kill && now - this.hitMark.t < 0.1 };
+  }
+
   slam(t1, t2, down = false) {
     const b = this.el.big;
     b.querySelector('.t1').textContent = t1.toLowerCase();
@@ -106,13 +125,21 @@ export class HUD {
       `<span class="d">hull </span>[${hp < 35 ? `<span class="r">${hb}</span>` : hb}] ${String(hp).padStart(3)}`);
 
     // weapons
-    const w = g.weapons;
+    const w = g.weapons, cm = g.counter;
     const heat = bar(w.heat, 10);
     const msl = '■'.repeat(w.missiles) + '□'.repeat(WEAPONS.missiles.max - w.missiles);
+    const flr = '●'.repeat(cm.charges) + '○'.repeat(THREATS.flares.charges - cm.charges);
+    let lock;
+    if (w.holding) {
+      const n = w.lockedTargets().length;
+      let best = 0; for (const st of w.lockState.values()) if (!st.locked) best = Math.max(best, st.p);
+      lock = `<span class="r">${n ? `${n} locked` : 'tracking'}${best > 0 ? ` ${Math.round(lockDisplay(best) * 100)}%` : ''}</span> <span class="d">· release</span>`;
+    } else lock = w.primary ? `<span class="d">hold rmb · ${w.primary.name.toLowerCase()} ${Math.round(w.primary.dist)} m</span>` : '<span class="d">--</span>';
     this.set('weapons',
       `<span class="d">gun  </span>[${w.overheated > 0 ? `<span class="r">${heat}</span>` : heat}]\n` +
       `<span class="d">msl  </span>${msl}\n` +
-      `<span class="d">lock </span>${w.primary ? `<span class="r">${w.primary.name.toLowerCase()} ${Math.round(w.primary.dist)} m</span>` : '<span class="d">--</span>'}`);
+      `<span class="d">flr  </span>${cm.charges ? flr : `<span class="r">${flr}</span>`} <span class="d">f</span>\n` +
+      `<span class="d">lock </span>${lock}`);
 
     this.drawOverlay();
   }
@@ -165,6 +192,23 @@ export class HUD {
         ctx.moveTo(ap.x, ap.y + gap); ctx.lineTo(ap.x, ap.y + gap + len);
       });
       ctx.fillStyle = col; ctx.fillRect(ap.x - dpr, ap.y - dpr, 2 * dpr, 2 * dpr);
+      // hit marker: diagonal ticks for a confirmed hit, red and wider on a kill
+      const hm = this.hitMark, age = t - hm.t, life = hm.kill ? 0.32 : 0.14;
+      if (age >= 0 && age < life) {
+        const k = 1 - age / life, r0 = (hm.kill ? 11 : 8) * dpr, r1 = r0 + (hm.kill ? 11 : 7) * dpr * (0.6 + 0.4 * k);
+        ctx.globalAlpha = Math.min(1, k * 1.6);
+        this.stroke(ctx, hm.kill ? RED : INK, hm.kill ? 2.4 : 1.8, () => {
+          ctx.beginPath();
+          for (const [sx, sy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) { ctx.moveTo(ap.x + sx * r0 * 0.7071, ap.y + sy * r0 * 0.7071); ctx.lineTo(ap.x + sx * r1 * 0.7071, ap.y + sy * r1 * 0.7071); }
+        });
+        ctx.globalAlpha = 1;
+      }
+      // missile trigger held: the lock margin around the crosshair
+      if (w0.holding) {
+        ctx.setLineDash([3 * dpr, 4 * dpr]);
+        this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(WEAPONS.lock.margin) * focal, 0, Math.PI * 2); });
+        ctx.setLineDash([]);
+      }
     }
     // hint until the mouse is captured
     if (g.state === 'playing' && !g.attract && !g.useAutopilot && !g.input.locked) {
@@ -201,15 +245,24 @@ export class HUD {
       this.label(ctx, `${Math.round(it.pos.distanceTo(p.pos))} m`, pr.x + r + 4 * dpr, pr.y + 4 * dpr, INK2);
     }
 
-    // --- incoming missiles
+    // --- incoming missiles: marker on the missile + the threat warning (sharpens with time to impact)
     for (const m of g.projectiles.missiles) {
       if (m.owner !== 'enemy') continue;
+      const th = g.counter.threats.find((x) => x.m === m);
+      const lv = th ? th.level : 0;
       const pr = this.project(m.p, cam);
-      if (pr.behind) { this.edgeChevron(ctx, m.p, cam, W, H); continue; }
-      if (Math.sin(t * 24) < 0) continue;
-      const k = 7 * dpr;
-      this.stroke(ctx, RED, 1.8, () => { ctx.beginPath(); ctx.moveTo(pr.x, pr.y - k); ctx.lineTo(pr.x + k, pr.y + k * 0.8); ctx.lineTo(pr.x - k, pr.y + k * 0.8); ctx.closePath(); });
+      if (pr.behind) { if (!th) this.edgeChevron(ctx, m.p, cam, W, H); continue; }
+      if (m.decoy) { // pulled off by a flare: a calm gray marker
+        const k = 5 * dpr;
+        this.stroke(ctx, INK2, 1.2, () => { ctx.beginPath(); ctx.moveTo(pr.x, pr.y - k); ctx.lineTo(pr.x + k, pr.y + k * 0.8); ctx.lineTo(pr.x - k, pr.y + k * 0.8); ctx.closePath(); });
+        continue;
+      }
+      if (lv < 0.8 && Math.sin(t * (14 + 30 * lv)) < -0.3) continue;
+      const k = (7 + 9 * lv) * dpr;
+      this.stroke(ctx, RED, 1.8 + 1.4 * lv, () => { ctx.beginPath(); ctx.moveTo(pr.x, pr.y - k); ctx.lineTo(pr.x + k, pr.y + k * 0.8); ctx.lineTo(pr.x - k, pr.y + k * 0.8); ctx.closePath(); });
+      if (th && th === g.counter.worst) this.label(ctx, `${th.tti.toFixed(1)}s`, pr.x + k + 4 * dpr, pr.y + 4 * dpr, RED);
     }
+    this.drawThreats(ctx, W, H, dpr, t);
 
     // --- detection: rounded red boxes
     const w = g.weapons;
@@ -233,9 +286,103 @@ export class HUD {
       // hairline hp
       ctx.fillStyle = 'rgba(255,59,48,0.25)'; ctx.fillRect(pr.x - size, pr.y - size - 5 * dpr, size * 2, 1.5 * dpr);
       ctx.fillStyle = RED; ctx.fillRect(pr.x - size, pr.y - size - 5 * dpr, size * 2 * Math.max(0, e.hp / e.maxHp), 1.5 * dpr);
+      // missile lock-on ring: charges around the target while you track it (slow, then fast)
+      const ls = w.lockState.get(e);
+      if (ls) {
+        const R = size * 1.25 + 10 * dpr;
+        if (ls.locked) {
+          this.stroke(ctx, RED, 2.6, () => { ctx.beginPath(); ctx.arc(pr.x, pr.y, R, 0, Math.PI * 2); });
+          ctx.save(); ctx.translate(pr.x, pr.y); ctx.rotate(-t * 1.5);
+          this.stroke(ctx, RED, 2, () => {
+            ctx.beginPath();
+            for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2; ctx.moveTo(Math.cos(a) * (R + 9 * dpr), Math.sin(a) * (R + 9 * dpr)); ctx.lineTo(Math.cos(a) * (R + 2 * dpr), Math.sin(a) * (R + 2 * dpr)); }
+          });
+          ctx.restore();
+          ctx.save(); ctx.textAlign = 'center'; this.label(ctx, 'lock', pr.x, pr.y - R - 7 * dpr, RED); ctx.restore();
+        } else {
+          const f = lockDisplay(ls.p);
+          ctx.globalAlpha = 0.3;
+          this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(pr.x, pr.y, R, 0, Math.PI * 2); });
+          ctx.globalAlpha = ls.out > 0 ? 0.55 : 1;
+          if (f > 0.003) this.stroke(ctx, RED, 3, () => { ctx.beginPath(); ctx.arc(pr.x, pr.y, R, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); });
+          ctx.globalAlpha = 1;
+        }
+      }
     }
+    this.drawNumbers(ctx, cam, dpr, t);
 
     this.drawAltimeter(ctx, W, H, dpr);
+  }
+
+  /** floating damage numbers: pop on hit, rise, fade; kills are bigger */
+  drawNumbers(ctx, cam, dpr, t) {
+    ctx.save(); ctx.textAlign = 'center'; ctx.lineJoin = 'round';
+    for (let i = this.numbers.length - 1; i >= 0; i--) {
+      const n = this.numbers[i];
+      const age = t - n.t0, life = n.kill ? 1.3 : 0.85;
+      if (age > life || age < -1) { this.numbers.splice(i, 1); continue; }
+      if (n.e.alive) n.anchor.copy(n.e.pos).add(n.off);
+      const pr = this.project(n.anchor, cam);
+      if (pr.behind) continue;
+      const pop = 1 + 0.7 * Math.exp(-(t - n.pop) * 16);
+      const px = (n.kill ? 22 : 15 + Math.min(8, n.value / 6)) * pop * dpr;
+      const x = pr.x + n.side * 26 * dpr, y = pr.y - (14 + age * 46) * dpr;
+      ctx.globalAlpha = Math.min(1, (life - age) / (life * 0.4));
+      ctx.font = `700 ${px}px "JetBrains Mono", monospace`;
+      const txt = n.kill ? `${Math.round(n.value)} ✕` : `${Math.round(n.value)}`;
+      ctx.lineWidth = 3.5 * dpr; ctx.strokeStyle = '#fff'; ctx.strokeText(txt, x, y);
+      ctx.fillStyle = n.kill ? RED : INK; ctx.fillText(txt, x, y);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  /**
+   * Incoming-missile warning, per threat (closest impacts first): a red arc on
+   * a ring around the screen center pointing at the missile, with a glow
+   * creeping in from that screen edge. Arc length, weight and blink rate grow
+   * as the time to impact shrinks; under THREATS.breakAt the center calls it.
+   */
+  drawThreats(ctx, W, H, dpr, t) {
+    const g = this.game, cam = g.camera, list = g.counter.threats;
+    const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.36;
+    for (let i = 0; i < Math.min(3, list.length); i++) {
+      const th = list[i], lv = th.level;
+      if (lv <= 0) continue;
+      _c.copy(th.m.p).applyMatrix4(cam.matrixWorldInverse);
+      let ax = _c.x, ay = -_c.y;
+      if (Math.hypot(ax, ay) < 1e-3) ay = 1;
+      const ang = Math.atan2(ay, ax);
+      const blinkOn = lv > 0.85 || Math.sin(t * Math.PI * 2 * (1.5 + 9 * lv)) > -0.25;
+      // edge glow from the missile's side
+      const ex = cx + Math.cos(ang) * W * 0.6, ey = cy + Math.sin(ang) * H * 0.6;
+      const grd = ctx.createRadialGradient(ex, ey, 0, ex, ey, H * (0.35 + 0.35 * lv));
+      grd.addColorStop(0, `rgba(255,59,48,${0.32 * lv * lv})`); grd.addColorStop(1, 'rgba(255,59,48,0)');
+      ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
+      if (!blinkOn) continue;
+      const half = 0.1 + 0.32 * lv;
+      this.stroke(ctx, RED, 2 + 7 * lv * lv, () => { ctx.beginPath(); ctx.arc(cx, cy, R, ang - half, ang + half); });
+      // arrowhead pointing outward, toward the missile
+      const tx = cx + Math.cos(ang) * (R + (12 + 10 * lv) * dpr), ty = cy + Math.sin(ang) * (R + (12 + 10 * lv) * dpr);
+      const k = (6 + 6 * lv) * dpr;
+      ctx.save(); ctx.translate(tx, ty); ctx.rotate(ang);
+      ctx.fillStyle = RED; ctx.beginPath(); ctx.moveTo(k, 0); ctx.lineTo(-k * 0.6, k * 0.8); ctx.lineTo(-k * 0.6, -k * 0.8); ctx.closePath(); ctx.fill();
+      ctx.restore();
+      if (i === 0) { // only the closest impact is labeled (several from one side would overprint)
+        ctx.save(); ctx.textAlign = 'center';
+        this.label(ctx, `${th.tti.toFixed(1)}s`, cx + Math.cos(ang) * (R - 16 * dpr), cy + Math.sin(ang) * (R - 16 * dpr) + 4 * dpr, RED);
+        ctx.restore();
+      }
+    }
+    const w = list[0];
+    if (w && w.tti < THREATS.breakAt && Math.sin(t * 38) > -0.4) {
+      ctx.save(); ctx.textAlign = 'center';
+      ctx.font = `700 ${22 * dpr}px "JetBrains Mono", monospace`;
+      const txt = g.counter.charges > 0 ? 'break · f flares' : 'break · turn hard';
+      ctx.lineWidth = 4 * dpr; ctx.strokeStyle = '#fff'; ctx.strokeText(txt, cx, H * 0.2);
+      ctx.fillStyle = RED; ctx.fillText(txt, cx, H * 0.2); // above the mach slam banner
+      ctx.restore();
+    }
   }
 
   label(ctx, text, x, y, color) {

@@ -5,6 +5,7 @@ export class Input {
     this.down = new Set();
     this.pressed = new Set();
     this.mouseDown = false;
+    this.mouse2Down = false;
     this.virtual = null; // autopilot can inject a virtual controller
     this.lookX = 0; this.lookY = 0;
     this.locked = false;
@@ -15,18 +16,18 @@ export class Input {
     });
     target.addEventListener('keydown', (e) => {
       const k = e.code;
-      if (['KeyW','KeyA','KeyS','KeyD','KeyJ','KeyK','KeyQ','Space','ShiftLeft','ShiftRight','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(k)) e.preventDefault();
+      if (['KeyW','KeyA','KeyS','KeyD','KeyJ','KeyK','KeyQ','KeyF','Space','ShiftLeft','ShiftRight','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(k)) e.preventDefault();
       if (!this.down.has(k)) this.pressed.add(k);
       this.down.add(k);
     });
     target.addEventListener('keyup', (e) => this.down.delete(e.code));
-    target.addEventListener('blur', () => { this.down.clear(); this.mouseDown = false; });
+    target.addEventListener('blur', () => { this.down.clear(); this.mouseDown = false; this.mouse2Down = false; });
     target.addEventListener('mousedown', (e) => {
       if (e.button === 0) { this.mouseDown = true; this.pressed.add('Mouse0'); }
       if (e.button === 1) { this.pressed.add('Mouse1'); e.preventDefault(); }
-      if (e.button === 2) this.pressed.add('Mouse2');
+      if (e.button === 2) { this.mouse2Down = true; this.pressed.add('Mouse2'); }
     });
-    target.addEventListener('mouseup', (e) => { if (e.button === 0) this.mouseDown = false; });
+    target.addEventListener('mouseup', (e) => { if (e.button === 0) this.mouseDown = false; if (e.button === 2) this.mouse2Down = false; });
     target.addEventListener('contextmenu', (e) => e.preventDefault());
   }
   // Abstract controls the game consumes.
@@ -42,7 +43,8 @@ export class Input {
       up: d.has('Space') || d.has('ArrowUp'),
       down: d.has('ShiftLeft') || d.has('ShiftRight') || d.has('ArrowDown'),
       gun: d.has('KeyJ') || this.mouseDown,
-      missiles: this.pressed.has('KeyK') || this.pressed.has('Mouse2'),
+      missileHold: d.has('KeyK') || this.mouse2Down,   // hold: lock on, release: fire
+      flares: this.pressed.has('KeyF'),
       lookX: this.lookX, lookY: this.lookY,
       recenter: this.pressed.has('KeyQ') || this.pressed.has('Mouse1'),
     };

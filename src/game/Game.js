@@ -28,6 +28,7 @@ import { VectorFX } from '../render/VectorFX.js';
 import { Player } from './Player.js';
 import { Projectiles } from '../combat/Projectiles.js';
 import { Weapons } from '../combat/Weapons.js';
+import { Countermeasures } from '../combat/Countermeasures.js';
 import { EnemyManager } from '../enemies/Enemies.js';
 import { ufoMesh, droneMesh, fighterMesh } from '../enemies/meshes.js';
 import { Pickups } from '../pickups/Pickups.js';
@@ -80,6 +81,7 @@ export class Game {
     renderer.domElement.addEventListener('mousedown', () => { if (this.state === 'playing') this.input.requestLock(renderer.domElement); });
     this.projectiles = new Projectiles(this);
     this.weapons = new Weapons(this);
+    this.counter = new Countermeasures(this); // incoming-missile warning + flares
     this.enemies = new EnemyManager(this);
     this.pickups = new Pickups(this);
     this.hud = new HUD(this);
@@ -183,7 +185,7 @@ export class Game {
     if (!want && this.space) { this.space.dispose(); this.space = null; }
     if (live && !force) this.hud.toast(want ? 'SPACE FLIGHT ON · CLIMB INTO ORBIT' : 'SPACE FLIGHT OFF', 'info');
     const note = document.getElementById('ceiling-note');
-    if (note) note.textContent = want ? `past the clouds, past ${FLIGHT.earthCeiling / 1000} km, into orbit (${SPACE.ceiling / 1000} km)` : `past the clouds to the ${FLIGHT.earthCeiling / 1000} km ceiling`;
+    if (note) note.textContent = want ? `past the clouds into orbit (${SPACE.ceiling / 1000} km)` : `past the clouds to the ${FLIGHT.earthCeiling / 1000} km ceiling`;
   }
 
   openSettings() {
@@ -219,6 +221,7 @@ export class Game {
     this.enemies.reset();
     this.pickups.reset();
     this.weapons.reset();
+    this.counter.reset();
     this.particles.normal.clear(); this.particles.vector.clear();
     this.autopilot = new Autopilot(this);
     this.stats = { time: 0, fromSpawn: 0, kills: 0, killScore: 0, gateScore: 0, gates: 0, nearMisses: 0, missScore: 0, maxTier: 1, milestone: 0 };
@@ -390,6 +393,23 @@ export class Game {
     this.hud.toast(cause === 'crash' ? `${enemy.name} CRASHED +${Math.round(enemy.score * bonus)}` : `${enemy.name} DOWN +${enemy.score}`, 'good');
   }
 
+  /** any player round / blast that damaged an enemy: the hit has to be felt */
+  onEnemyHit(e, amount, source, at, kill) {
+    if (this.attract) return;
+    this.hud.damageNumber(e, amount, at, kill, source);
+    if (source === 'gun') {
+      this.audio.hitTick(Math.min(1, amount / 30));
+      const v = this.particles.vector;
+      v.ring(at.x, at.y, at.z, 1.5, 11, 0.2, PALETTE.enemy);
+      this.particles.normal.burst(at.x, at.y, at.z, 7, (bx, by, bz, k) => ({
+        x: bx, y: by, z: bz, rel: true,
+        vx: (Math.random() - 0.5) * 160, vy: (Math.random() - 0.3) * 160, vz: (Math.random() - 0.5) * 160,
+        life: 0.25 + Math.random() * 0.15, size: 2.6 + Math.random() * 1.6, color: k % 2 ? PALETTE.enemy : PALETTE.ink,
+        shape: k % 2 ? SHAPE.PLUS : SHAPE.SQUARE, drag: 3,
+      }));
+    }
+  }
+
   damagePlayer(amount, source) {
     if (this.attract || this.god) { if (!this.attract) this.fx.hurt(amount); return; }
     this.player.takeDamage(amount, source);
@@ -490,7 +510,7 @@ export class Game {
     const ctl = (this.attract || this.useAutopilot) ? this.autopilot.control(dt) : inp.state();
     const p = this.player;
     // mouse aim: never touches the trajectory, only camera + weapons
-    if (this.state === 'playing' && !this.attract && !this.useAutopilot && p.alive) this.aim.update(dt, ctl, this.weapons.firing);
+    if (this.state === 'playing' && !this.attract && !this.useAutopilot && p.alive) this.aim.update(dt, ctl, this.weapons.firing || this.weapons.holding);
     else this.aim.reset();
 
     if (this.flagsPending) this.syncFlags();
@@ -502,8 +522,10 @@ export class Game {
     this.hazards.update(dt, p, this.difficulty || 0);
 
     this.weapons.update(dt, p.alive ? ctl : {});
+    if (p.alive && ctl.flares) this.counter.deploy();
     this.enemies.update(dt);
     this.projectiles.update(dt);
+    this.counter.update(dt);
     this.pickups.update(dt);
     this.runDirector(dt);
 
@@ -569,7 +591,6 @@ export class Game {
     }
     this.deckSide = side;
     this.audio.update(s.speed / TIERS[TIERS.length - 1].speed, s.level, s.charge, p.throttle, p.braking, p.alive && s.engaged && !this.attract);
-    if (this.frame % 20 === 0) this.missileWarn();
     if (this.state !== 'menu') this.hud.update();
 
     this.renderer.info.reset();
@@ -585,11 +606,6 @@ export class Game {
     const v = (this._ndc || (this._ndc = new THREE.Vector3())).copy(this.player.pos).project(this.camera);
     if (v.z < 1) { out[0] = Math.min(1, Math.max(0, v.x * 0.5 + 0.5)); out[1] = Math.min(1, Math.max(0, v.y * 0.5 + 0.5)); }
     return out;
-  }
-
-  missileWarn() {
-    if (this.attract) return;
-    for (const m of this.projectiles.missiles) if (m.owner === 'enemy' && m.p.distanceTo(this.player.pos) < 1500) { this.audio.missileWarning(); break; }
   }
 
   perfTick(dt) {

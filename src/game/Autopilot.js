@@ -59,8 +59,15 @@ export class Autopilot {
     if (p.pitch < targetPitch - 0.004) ctl.up = true;
     else if (p.pitch > targetPitch + 0.004) ctl.down = true;
     ctl.gun = !!g.weapons.primary && g.weapons.heat < 0.85;
+    // missiles: hold to build a lock (the attract pilot looks straight ahead), release to fire
     this.missileT -= dt;
-    if (this.missileT <= 0 && g.weapons.locks.length && g.weapons.missiles >= 4) { ctl.missiles = true; this.missileT = 2.5 + Math.random() * 3; }
+    if (this.missileT <= 0 && g.weapons.locks.length && g.weapons.missiles >= 4) { this.holdT = 2.2; this.missileT = 4 + Math.random() * 3; }
+    this.holdT = (this.holdT || 0) - dt;
+    ctl.missileHold = this.holdT > 0;
+    // flares when a missile is about to land
+    const th = g.counter?.worst;
+    ctl.flares = !!th && th.tti < 1.4 && g.counter.charges > 0 && !this.flared;
+    this.flared = !!th && th.tti < 1.4;
     return ctl;
   }
 }

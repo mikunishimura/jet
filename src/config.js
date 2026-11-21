@@ -197,10 +197,31 @@ export const AIM = {
 };
 
 export const WEAPONS = {
-  minigun: { rate: 26, speed: 2600, damage: 6, spread: 0.006, heatPerShot: 0.0125, cool: 0.45, coolDelay: 0.25, overheatLock: 1.5, range: 1900 },
+  // heavier, slower rounds (was 26/s × 6 dmg); the barrels cool and unjam fast
+  minigun: { rate: 11, speed: 6500, damage: 14, spread: 0.004, heatPerShot: 0.034, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 1900 },
   missiles: { salvo: 4, stagger: 0.07, max: 8, reload: 1.4, speed: 750, accel: 900, turnRate: 4.2, damage: 70, splash: 70, life: 6 },
-  lockCone: 42 * DEG,
+  // a hard lock is a kill: one hypersonic missile per locked target, out in a quick ripple
+  lockedMissile: { speed: 5200, accel: 60000, turnRate: 40, stagger: 0.035, prox: 30, life: 3 },
+  lockCone: 42 * DEG,      // detection: red boxes, gun aim-assist candidates
   lockRange: 2400,
+  // missile lock-on: hold RMB / K, keep the crosshair on an enemy, release to fire
+  lock: {
+    time: 0.75,            // s of tracking per target
+    margin: 5 * DEG,       // aim error allowed around the target's own angular size
+    grace: 0.3,            // s the crosshair may slip off before progress drains
+    drain: 1.2,            // progress / s lost after the grace period
+    maxTargets: 4,
+    displayK: 3,           // lock ring fill: slow at first, fast at the end (display only)
+    dumbfire: 2,           // missiles on a release with nothing locked
+  },
+};
+
+// Incoming enemy missiles: a warning that sharpens as the impact gets closer
+// (time to impact, s), and flares that decoy what's inside their window.
+export const THREATS = {
+  warnFrom: 5,             // s to impact: the warning starts
+  breakAt: 1.6,            // s: "break / flares now"
+  flares: { charges: 3, recharge: 5, life: 1.3, window: 3.2, eject: 160 }, // window: s-to-impact a flare can still pull a missile off
 };
 
 export const DIRECTOR = {
