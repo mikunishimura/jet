@@ -101,7 +101,8 @@ export class HUD {
       `<span class="d">dist  </span>${fmtKm(g.stats.fromSpawn)} km\n` +
       `<span class="d">kills </span>${g.stats.kills}\n` +
       `<span class="d">pts   </span>${g.score.toLocaleString('en-US')}` +
-      (this.showFps ? `\n<span class="d">fps   </span>${Math.round(g.perf.fps)}` : ''));
+      (this.showFps ? `\n<span class="d">fps   </span>${Math.round(g.perf.fps)}` : '') +
+      (g.net ? `\n${g.net.hudText()}` : ''));
 
     // speed block
     const chg = chargeDisplay(s.charge);
@@ -315,6 +316,7 @@ export class HUD {
     }
     this.drawNumbers(ctx, cam, dpr, t);
 
+    g.net?.drawOverlay(this, ctx, cam, W, H, dpr);
     this.drawAltimeter(ctx, W, H, dpr);
   }
 

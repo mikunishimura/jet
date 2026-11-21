@@ -100,6 +100,43 @@ With the flag off none of this is created. The ceiling is `FLIGHT.earthCeiling`,
 
 Add an orbital pattern in `src/space/patterns.js` and give it a weight in `SPACE.patterns` (`src/config.js`).
 
+## Co-op multiplayer (LAN)
+
+```
+npm run lan            # co-op server (:5200) + game (:5199), reachable on your network
+```
+Everyone opens `http://<that machine>:5199/?mp` (or uses **co-op · lan** on the menu: pilot name, server, squad). Optional URL parameters: `?mp&name=ace&room=red&server=ws://10.0.0.5:5200`. **Demo / recording:** open `http://<that machine>:5199/demo.html`. It's one window split into four: you in the top-right corner, plus three wingman bots. You can also give a single window the bot role with `/?mp&bot`. Bots join your squad, take off and respawn by themselves, can't be hurt, stay silent and fly formation on you (alternating sides, stepping back). Add `?name=…&room=…&server=…` to target a specific squad. Run only the server with `npm run mp:server` (add `--lag 40 --jitter 10 --loss 0.02` to simulate an internet link). Load-test it with `npm run mp:bench -- --bots 8 --rooms 2`.
+
+**Flying together at Mach 100.** Players fly wherever they want, but the squad's overall trajectory, the **squad line** (the members' mean position and mean flight direction), pulls on everyone in four ways:
+
+1. **Shared barrier.** The speed tier belongs to the squad. The barrier charges at the *average* contribution: each member holding the squad line adds their altitude band's rate, ×1.25 when **drafting** within 2.5 km of a teammate; anyone off the line adds nothing. One straggler halves the charge rate. Gates and near misses charge the whole squad. A head-on crash costs the squad a tier. With one member it is exactly the solo barrier (a test checks this frame by frame).
+2. **Flow current.** Past a free zone of 0.3 s of flight, a sideways and vertical drift carries you toward the squad line. It never turns your nose, so it can't break your straight line. Along the line, a ±12 % rubber band closes the formation.
+3. **Leash and rejoin.** Beyond 3 s of flight away, a stronger pull starts. If you are also hands off the stick, the nose eases back toward an intercept on the line. In a simulation, a hands-off squad scattered by gusts stays within about 5 s of flight instead of 450 km. A pilot who steers away still gets away.
+4. **The world follows the squad.** Obstacles and enemy waves are planned along the squad line. Wander off and you fly through empty plains.
+
+**Netcode.**
+
+| | |
+|---|---|
+| Authority | Each client owns its own jet and the enemies attacking it, so the fight has no latency. The server owns the squad: barrier, obstacle planning, wave director. Hits on a teammate's enemy are shooter-favoured claims sent to its owner; feedback is instant and the kill credit goes to the shooter. |
+| Teammates | **Dead reckoning** with error blending (`src/net/predict.js`), not interpolation. Each frame a teammate is drawn where they are *now*, predicted from their newest snapshot along their current turn. Corrections fade out over 0.12 s. |
+| Their enemies | Sent relative to the owner's jet (they fly in its frame) and re-anchored on our prediction of that jet, so they are steady even at 19 km/s. |
+| Obstacles | The server sends `{kind, seed, position, heading}`; every client builds the same structure from a seeded generator, and the terrain check gives the same answer everywhere. |
+| Wire | Binary hot frames with fixed layouts (state 80 B at 30 Hz, enemies 28 B each at 20 Hz, squad at 20 Hz); JSON only for rare events; full snapshots (no deltas), so a lost frame costs nothing. Send rates are fixed, not per frame, so the traffic is the same at 60 or 360 fps. |
+| Clock | NTP-style sync on the fastest round trips, slewed (never steps backwards). |
+
+**Measured** (one machine; the outside judges are `test/net.test.js` and `npm run mp:bench`):
+- **Prediction at Mach 100 through 40 ± 15 ms lag and 3 % loss:** 11 m RMS error, against 1,121 m holding the last snapshot and 1,893 m interpolating 100 ms back.
+- **Two real games, one per pilot:** each sees the other within about 32 m at 19 km/s. Both hold 120 fps (the display cap); the network code costs about 0.02 ms per frame.
+- **Server with 8 bots at full rates:** ping round trip 0.31 ms median (2.2 ms p99), relay 0.38 ms one-way, tick 0.08 ms, 5 % of one CPU core, about 57 KB/s down per client. 16 bots: 7.4 % CPU.
+
+**Toward the cloud.** The parts are split so that a cloud deploy changes how frames travel, not the game:
+- `src/net/protocol.js`, `squad.js`, `predict.js` and `clock.js` are pure and shared by browser and server.
+- `server/room.js` doesn't know about sockets; `server/index.js` is just a WebSocket front end.
+- **Swap the transport:** add an unreliable one (WebTransport datagrams or a WebRTC data channel) next to `src/net/transport.js`. Hot frames are already full snapshots that tolerate loss.
+- **Run it as a service:** run the same `Room` behind TLS (`wss://`), one process per region.
+- **Then, as needed:** batch relays per tick and filter enemy snapshots by distance (interest management) to cut bandwidth; add reconnection tokens.
+
 ## Skins
 
 Pick your airframe in **settings → hangar** (swaps live, remembered). Skins are defined in `src/render/skins.js`. Each one builds its geometry and returns its exhaust flames, contrail nozzles and gun/missile hardpoints, so weapons always fire from the right spots.
@@ -159,6 +196,10 @@ src/
     materials.js         vacuum-lit bodies, spinning silhouette rim, striped boost rings
     orbit.js             pure altitude helpers: air density, sky blend, limb, far plane
   core/flags.js          feature-flag resolution (URL > setting > default)
+  net/                   co-op: pure protocol / squad rules / prediction / clock (shared with the server),
+                         NetSession (client), GhostEnemy (a teammate's enemy), transport
+server/                  co-op server: room.js (squad authority, transport-agnostic), index.js (WebSocket),
+                         lan.js (npm run lan), bench.js (load test)
   world/
     World.js             chunk streaming (forward cone, 4 ms/frame budget), collision + ray queries, layers
     PathHazards.js       paced obstacle events down the player's path (pattern table)

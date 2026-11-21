@@ -179,6 +179,36 @@ export const PATH = {
   patterns: { pair: 3, spire: 2.5, boulder: 1.5, mesa: 1, gate: 1.4, cluster: 1, wall: 0.6, vista: 1.6 },
 };
 
+// Co-op multiplayer (src/net/, server/). The squad flies one "overall
+// trajectory": the consensus direction of its members (the squad line).
+// Members fly freely, but the line pulls on them three ways: a shared speed
+// barrier that charges while members hold the squad line, a flow current that
+// drifts each jet toward the line (never turning its nose), and obstacles and
+// enemy waves that are placed along the line. Distances scale with squad
+// speed (seconds of flight), so the feel is the same at Mach 16 and Mach 100.
+export const SQUAD = {
+  port: 5200,
+  stateHz: 30,           // own jet snapshot rate (fixed, independent of FPS)
+  enemyHz: 20,           // owned enemies snapshot rate
+  squadHz: 20,           // server -> squad state
+  serverHz: 60,          // server simulation tick
+  maxMembers: 8,
+  draft: { radius: 2500, bonus: 1.25 },       // within this of a teammate: barrier charges ×bonus (drafting)
+  flow: {                 // cohesion current toward the squad line (lateral + vertical)
+    dead: 0.3,            // s of flight: free zone around the line
+    soft: 2.5,            // s of flight: how fast the current builds past the free zone
+    max: 0.075,           // × squad speed at full strength (≈ 4.3° of heading: you can still leave)
+    vertical: 0.6,        // vertical share of the pull
+    minDead: 700,         // m: free zone never smaller than this
+    leash: { from: 3, soft: 8, max: 0.16 },   // far away (s of flight): a second, stronger pull so nobody stays lost
+    rejoin: { rate: 0.1, gain: 0.5, lookahead: 3 }, // far away AND hands off the stick: the nose eases back toward the squad (rad/s)
+  },
+  rubber: { horizon: 1.5, gain: 0.12 },       // along the line: ±12 % speed at 1.5 s ahead / behind
+  predict: { tau: 0.12, snap: 4000, maxExtrap: 0.6 }, // remote jets: error blend (s), teleport threshold (m), max dead reckoning (s)
+  slots: { side: 380, back: 260, up: 60 },    // formation slots when (re)spawning
+  waves: { perMember: 4 },                    // max alive enemies per member
+};
+
 // Mouse look / aim. The mouse never steers the jet: it aims the camera and
 // the guns. Aim is an offset relative to the jet's flight direction.
 // Player airframe skins (built in render/skins.js). The first one is the default.

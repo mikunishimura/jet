@@ -48,6 +48,8 @@
 # fly low (&lt;60 m) for ground effect; above 1000 m the radar finds you</pre>
         <button id="start">[ press w to launch ]</button>
         <button class="ghost open-settings">[ settings · o ]</button>
+        <button class="ghost" id="coop-open">[ co-op · lan ]</button>
+        <div class="best" id="menu-coop"></div>
         <div class="best" id="menu-best"></div>
       </div>
     </div>
@@ -72,6 +74,24 @@ score      <b id="d-score"></b></pre>
     </div>
   </div>
   <div id="settings" class="screen hidden"></div>
+
+  <div id="coop" class="screen hidden">
+    <div class="term">
+      <div class="titlebar"><span>~/lab/jet/co-op</span><span>lan</span></div>
+      <div class="body">
+        <p class="pitch">fly as a squad. go anywhere: the squad line pulls you back, and the barrier only breaks when everyone holds it.</p>
+        <div class="srow"><span class="slabel">pilot</span><input id="coop-name" maxlength="16" spellcheck="false" /></div>
+        <div class="srow"><span class="slabel">server</span><input id="coop-server" spellcheck="false" /></div>
+        <div class="srow"><span class="slabel">squad</span><input id="coop-room" maxlength="24" spellcheck="false" /></div>
+        <pre class="notes"># run the server on one machine: npm run lan
+# everyone opens http://&lt;that machine&gt;:5199 and joins the same squad</pre>
+        <div class="best" id="coop-status">not connected</div>
+        <button id="coop-join">[ join squad ]</button>
+        <button class="ghost hidden" id="coop-leave">[ leave squad ]</button>
+        <button class="ghost" id="coop-back">[ back ]</button>
+      </div>
+    </div>
+  </div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

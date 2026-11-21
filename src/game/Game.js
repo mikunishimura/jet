@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV, AMBIENT, FLAGS, SPACE } from '../config.js';
 import { resolveFlag } from '../core/flags.js';
 import { Space } from '../space/Space.js';
+import { NetSession } from '../net/NetSession.js';
 import { Settings } from '../core/Settings.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { SettingsPanel } from '../ui/SettingsPanel.js';
@@ -89,9 +90,16 @@ export class Game {
     // player settings: applied live, persisted; the panel doubles as the pause screen
     this.settings = new Settings();
     this.space = null;          // space flight (FLAGS.space): created / disposed by syncFlags
+    this.net = null;            // co-op session (src/net/NetSession.js) while joined
     this.flagsPending = false;
     this.paused = false;
     this.settingsPanel = new SettingsPanel(this.settings, { onClose: () => this.closeSettings() });
+    const q = new URLSearchParams(location.search);
+    // ?bot: a demo wingman window. Joins the squad, launches and respawns by itself, flies
+    // formation on the human pilot, can't be hurt, stays silent, renders lighter.
+    this.bot = q.has('bot');
+    this.useAutopilot = q.has('autopilot') || this.bot;
+    this.god = q.has('god') || this.bot;
     this.settings.onChange(() => this.applySettings());
     this.applySettings();
     // Esc releases the pointer lock mid-flight -> pause with the settings window
@@ -104,10 +112,9 @@ export class Game {
     this.input.touch = this.touch;
 
     this.best = this.loadBest();
+    this.setupCoop();
     this.state = 'menu';
     this.attract = true;
-    this.useAutopilot = new URLSearchParams(location.search).has('autopilot');
-    this.god = new URLSearchParams(location.search).has('god');
     this.time = 0; this.frame = 0;
     this.perf = { fps: 0, frames: 0, acc: 0, worst: 0 };
     this.reset(Math.floor(Math.random() * 1e9));
@@ -155,7 +162,7 @@ export class Game {
   /** push every setting into the systems that use it (cheap; runs on each change) */
   applySettings() {
     const v = this.settings.values;
-    this.audio.setLevels(v.audio);
+    this.audio.setLevels(this.bot ? { ...v.audio, muted: true } : v.audio); // bots never make a sound
     AIM.sensitivity = AIM_BASE_SENSITIVITY * v.controls.sensitivity;
     AIM.invertY = v.controls.invertY;
     AIM.autoAim = v.controls.autoAim;
@@ -166,7 +173,7 @@ export class Game {
     if (this.rig.mode !== v.view.camera) this.rig.setMode(v.view.camera);
     if (this.jet.skinId !== v.view.skin) this.jet.setSkin(v.view.skin);
     FOV.userOffset = v.view.fovOffset;
-    const pr = Math.min(devicePixelRatio || 1, 1.5) * v.view.renderScale;
+    const pr = Math.min(devicePixelRatio || 1, this.bot ? 1 : 1.5) * v.view.renderScale * (this.bot ? 0.85 : 1);
     if (Math.abs(this.renderer.getPixelRatio() - pr) > 1e-3) { this.renderer.setPixelRatio(pr); this.resize(); }
     Object.assign(this.fx.prefs, v.fx);
     this.hud.showFps = v.view.showFps;
@@ -179,7 +186,8 @@ export class Game {
    * you are above the earth ceiling) waits until you are back below it.
    */
   syncFlags(force = false) {
-    const want = resolveFlag('space', { setting: this.settings.get('flags.space') });
+    // co-op: the room decides (everyone in a squad flies the same world)
+    const want = this.net?.ready ? this.net.space : resolveFlag('space', { setting: this.settings.get('flags.space') });
     if (want === FLAGS.space && want === !!this.space) { this.flagsPending = false; return; }
     const live = this.state === 'playing' && !this.attract;
     if (!force && !want && this.player.pos.y > FLIGHT.earthCeiling) {
@@ -243,12 +251,14 @@ export class Game {
   }
 
   start() {
-    this.audio.init();
+    if (!this.bot) this.audio.init();           // silent wingmen never open an AudioContext
     this.attract = false;
-    this.player.invincible = false;
-    this.reset(Math.floor(Math.random() * 1e9));
+    this.player.invincible = this.god;          // god: no damage of any kind (terrain included)
+    const coop = !!this.net?.ready;
+    this.reset(coop ? this.net.seed : Math.floor(Math.random() * 1e9));
     this.state = 'playing';
-    this.input.requestLock(this.renderer.domElement); // still inside the click/keypress activation window
+    if (coop) this.placeCoopSpawn();
+    if (!this.useAutopilot) this.input.requestLock(this.renderer.domElement); // still inside the click/keypress activation window
     document.getElementById('menu').classList.add('hidden');
     document.getElementById('death').classList.add('hidden');
     this.hud.show(true);
@@ -338,7 +348,7 @@ export class Game {
         if (e.type === 'gate' || e.type === 'ring') {
           if (e.material) e.material.uniforms.uPass.value = this.time; // the ring flashes white
           const s = p.speedSys;
-          if (s.next) s.charge = Math.min(0.98, s.charge + 0.35);
+          this.addCharge(0.35);
           this.stats.gateScore += 500;
           this.fx.gate(++this.stats.gates); this.audio.gate();
           // shards: pieces of ink thrown up and out of the gate line
@@ -357,7 +367,7 @@ export class Game {
         this.lastMiss = this.time;
         const s = p.speedSys, [lo, hi] = NEAR_MISS.charge;
         const add = lo + (hi - lo) * e.closeness;
-        if (s.next) s.charge = Math.min(0.98, s.charge + add);
+        this.addCharge(add);
         this.stats.nearMisses++;
         this.stats.missScore += Math.round(100 + 300 * e.closeness);
         this.fx.nearMiss(e.closeness); this.audio.nearMiss(e.closeness);
@@ -395,8 +405,9 @@ export class Game {
     }
   }
 
-  onKill(enemy, cause) {
+  onKill(enemy, cause, by = null) {
     if (this.attract) return;
+    if (by && this.net?.active) { this.net.creditTeammate(by, enemy); this.hud.toast(`${this.net.nameOf(by)} · ${enemy.name.toLowerCase()} down`, 'info'); return; }
     this.stats.kills++;
     const bonus = cause === 'crash' ? 1.5 : 1;
     this.stats.killScore += Math.round(enemy.score * bonus * (1 + 0.25 * (this.player.speedSys.level - 1)));
@@ -404,8 +415,8 @@ export class Game {
   }
 
   /** any player round / blast that damaged an enemy: the hit has to be felt */
-  onEnemyHit(e, amount, source, at, kill) {
-    if (this.attract) return;
+  onEnemyHit(e, amount, source, at, kill, by = null) {
+    if (this.attract || by) return; // a teammate's hit on our enemy: they get the numbers
     this.hud.damageNumber(e, amount, at, kill, source);
     if (source === 'gun') {
       this.audio.hitTick(Math.min(1, amount / 30));
@@ -455,6 +466,7 @@ export class Game {
     const band = this.player.band;
     d.wave -= dt / (band === 'high' ? ALTITUDE.waveIntervalHigh : band === 'low' ? ALTITUDE.waveIntervalLow : 1);
     const maxE = Math.round(lerp(D.maxEnemiesStart, D.maxEnemiesEnd, diff)) + (band === 'high' ? ALTITUDE.extraEnemiesHigh : 0);
+    if (this.net?.active) d.wave = 1;           // co-op: the squad's director sends the waves
     if (d.wave <= 0) {
       if (this.enemies.count < maxE) {
         const opts = [['drones', 1.0], ['ufo', s.time > 18 ? 0.7 + diff * 0.3 : 0], ['fighters', s.time > 35 ? 0.5 + diff : 0]];
@@ -476,6 +488,92 @@ export class Game {
     }
   }
 
+  // ---------------------------------------------------------------- co-op
+  /** menu wiring + ?mp auto-join. Settings remembered in localStorage. */
+  setupCoop() {
+    const $ = (id) => document.getElementById(id);
+    const KEY = 'jetlab.coop.v1';
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch { /* private mode */ }
+    const q = new URLSearchParams(location.search);
+    const host = location.hostname || '127.0.0.1';
+    const cfg = {
+      name: q.get('name') || saved.name || `pilot-${Math.floor(Math.random() * 900 + 100)}`,
+      server: q.get('server') || saved.server || `ws://${host}:5200`,
+      room: q.get('room') || saved.room || 'lan',
+    };
+    if (this.bot) cfg.name = q.get('name') || `bot-${'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]}${Math.floor(Math.random() * 90 + 10)}`;
+    this.coopCfg = cfg;
+    if (this.bot) { this.joinCoop(cfg); return; }  // never touches the saved pilot settings
+    const open = $('coop-open'), screen = $('coop');
+    if (!open || !screen) return;
+    $('coop-name').value = cfg.name; $('coop-server').value = cfg.server; $('coop-room').value = cfg.room;
+    open.addEventListener('click', () => { $('menu').classList.add('hidden'); screen.classList.remove('hidden'); });
+    $('coop-back').addEventListener('click', () => { screen.classList.add('hidden'); $('menu').classList.remove('hidden'); });
+    $('coop-join').addEventListener('click', () => {
+      cfg.name = $('coop-name').value.trim() || cfg.name; cfg.server = $('coop-server').value.trim(); cfg.room = $('coop-room').value.trim() || 'lan';
+      try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch { /* private mode */ }
+      this.joinCoop(cfg);
+    });
+    $('coop-leave').addEventListener('click', () => this.leaveCoop());
+    if (q.has('mp')) this.joinCoop(cfg);
+  }
+
+  joinCoop(cfg = this.coopCfg) {
+    this.net?.close();
+    this.net = new NetSession(this, { url: cfg.server, name: cfg.name, room: cfg.room, skin: this.settings.get('view.skin'), bot: this.bot });
+    this.onNetChange();
+  }
+
+  leaveCoop() {
+    this.net?.close(); this.net = null;
+    this.player.speedSys.follow = null; this.player.flow = null; this.hazards.remote = false;
+    this.onNetChange();
+  }
+
+  /** connection / roster changed: refresh the co-op panel and the room's flags */
+  onNetChange() {
+    const n = this.net, el = document.getElementById('coop-status'), tag = document.getElementById('menu-coop');
+    const names = n?.ready ? [this.coopCfg.name + ' (you)', ...[...n.members.values()].map((r) => r.name)] : [];
+    const text = !n ? '' : n.ready ? `squad "${n.room}" · ${names.length} pilot${names.length > 1 ? 's' : ''}: ${names.join(', ')}` : n.status;
+    if (el) el.textContent = text || 'not connected';
+    if (tag) tag.textContent = n ? `co-op · ${text}` : '';
+    document.getElementById('coop-leave')?.classList.toggle('hidden', !n);
+    if (n?.ready) this.syncFlags();
+  }
+
+  /** start / respawn in formation on the squad line (or the origin when nobody flies) */
+  placeCoopSpawn() {
+    const n = this.net, p = this.player, w = this.world, sp = n.spawnPoint();
+    w.rebase(sp.x - w.origin.x, sp.z - w.origin.z);
+    p.pos.set(0, sp.y, 0); p.prevPos.copy(p.pos);
+    p.heading = sp.heading; p.pitch = 0; p.updateBasis();
+    const s = p.speedSys, q = n.squad;
+    if (sp.joining && q) {                       // drop in at squad speed, not from a standstill
+      s.engaged = true; s.tier = q.tier; s.maxTierReached = q.tier;
+      s.speed = TIERS[q.tier - 1].speed;
+      s.follow = { tier: q.tier, charge: q.charge, refHeading: q.refHeading, refPitch: q.refPitch };
+    }
+    w.prewarm(sp.x, sp.z, p.flatForward.x, p.flatForward.z, s.tier);
+    this.rig.reset();
+    n.onReset();
+  }
+
+  /** a teammate confirmed our kill on one of their enemies */
+  creditKill(name, score) {
+    if (this.attract) return;
+    this.stats.kills++;
+    this.stats.killScore += Math.round(score * (1 + 0.25 * (this.player.speedSys.level - 1)));
+    this.hud.toast(`${String(name)} DOWN +${score}`, 'good');
+  }
+
+  /** barrier bonus (gates, near misses): the squad's barrier in co-op */
+  addCharge(add) {
+    const s = this.player.speedSys;
+    if (this.net?.active) this.net.bonus(add);
+    else if (s.next) s.charge = Math.min(0.98, s.charge + add);
+  }
+
   rebaseIfNeeded() {
     const p = this.player;
     if (Math.hypot(p.pos.x, p.pos.z) < WORLD.rebaseDistance) return;
@@ -487,6 +585,7 @@ export class Game {
     this.pickups.rebase(dx, dz);
     this.particles.normal.rebase(dx, dz); this.particles.vector.rebase(dx, dz);
     this.jet.rebase(dx, dz);
+    this.net?.rebase(dx, dz);
     this.ambient.rebase(dx, dz);
   }
 
@@ -536,12 +635,17 @@ export class Game {
     } else this.aim.reset();
 
     if (this.flagsPending) this.syncFlags();
+    // demo wingman: take off as soon as the squad link is up, and again after any death
+    if (this.bot && this.net?.ready && (this.state === 'menu' || this.state === 'dead')) this.start();
+    this.hazards.remote = !!this.net?.active;     // co-op: path events come from the squad
+    this.net?.beforePlayer();                     // squad barrier + flow current
     p.update(dt, ctl, this.world);
     this.rebaseIfNeeded();
     const ox = this.world.origin.x, oz = this.world.origin.z;
     const absX = p.pos.x + ox, absZ = p.pos.z + oz;
     this.world.update(absX, absZ, p.flatForward.x, p.flatForward.z, p.speedSys.tier, this.time, p.pos.y);
     this.hazards.update(dt, p, this.difficulty || 0);
+    this.net?.update(dt, real);                   // teammates, their enemies, our frames out
 
     this.weapons.update(dt, p.alive ? ctl : {});
     if (p.alive && (ctl.flares || (AIM.autoFire && !this.attract && this.counter.wantsAutoFlare()))) this.counter.deploy();

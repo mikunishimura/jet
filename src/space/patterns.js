@@ -11,8 +11,12 @@
 //   c.difficulty, c.heading, c.id
 // Add one: write it here and give it a weight in SPACE.patterns (config.js).
 
-const R = (a, b) => a + (b - a) * Math.random();
-const sign = () => (Math.random() < 0.5 ? -1 : 1);
+/** the random source patterns draw from; PathHazards swaps in a seeded one per event
+ *  so every client of a co-op squad builds the same structure from the same seed */
+export const RNG = { fn: Math.random };
+const rnd = () => RNG.fn();
+const R = (a, b) => a + (b - a) * rnd();
+const sign = () => (rnd() < 0.5 ? -1 : 1);
 
 export const SPACE_PATTERNS = {
   /** one asteroid: on your line or a near miss (above, below, beside) */
@@ -23,7 +27,7 @@ export const SPACE_PATTERNS = {
   },
   /** two rocks flanking your line, side by side or one over the other: hold it */
   pair(b, c) {
-    const gap = R(95, 140) - 25 * c.difficulty, vertical = Math.random() < 0.4;
+    const gap = R(95, 140) - 25 * c.difficulty, vertical = rnd() < 0.4;
     for (const s of [-1, 1]) {
       const r = R(22, 36), o = s * (gap / 2 + r);
       c.rock(b, R(-15, 15), vertical ? R(-12, 12) : o, vertical ? o : R(-12, 12), r);
@@ -43,7 +47,7 @@ export const SPACE_PATTERNS = {
   },
   /** a loose 3D swarm around the line, the odd one in it */
   swarm(b, c) {
-    const n = 6 + Math.floor(Math.random() * 5);
+    const n = 6 + Math.floor(rnd() * 5);
     for (let i = 0; i < n; i++) {
       const r = R(10, 30);
       const [s, u] = i === 0 ? c.offset(r) : [sign() * R(r + 60, 380), R(-260, 260)];

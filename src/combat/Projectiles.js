@@ -163,9 +163,9 @@ export class Projectiles {
       const m = this.missiles[i];
       m.age += dt; m.life -= dt;
       let tgtPos = null, tgtRv = null;
-      if (m.owner === 'player') {
-        if (m.target && !m.target.alive) m.target = g.weapons.retarget(m);
-        if (m.target) { tgtPos = m.target.pos; tgtRv = m.target.vel.clone().sub(pv); }
+      if (m.owner === 'player' || m.owner === 'ghost') {     // ghost: a teammate's missile (cosmetic, no damage)
+        if (m.owner === 'player' && m.target && !m.target.alive) m.target = g.weapons.retarget(m);
+        if (m.target && m.target.alive) { tgtPos = m.target.pos; tgtRv = m.target.vel.clone().sub(pv); }
       } else if (m.decoy) { tgtPos = m.decoy.p; tgtRv = m.decoy.rv; }   // pulled off by a flare
       else if (player.alive) { tgtPos = player.pos; tgtRv = new THREE.Vector3(); }
       m.speed = Math.min(m.relSpeed, m.speed + m.accel * dt);
@@ -195,7 +195,7 @@ export class Projectiles {
       m.hist.unshift(m.p.clone());
       let boom = m.life <= 0 || m.p.y < 1;
       if (!boom && tgtPos && m.p.distanceTo(tgtPos) < m.prox) boom = true;
-      if (!boom && m.owner === 'player') {
+      if (!boom && (m.owner === 'player' || m.owner === 'ghost')) {
         for (const e of enemies) if (e.alive && segSphere(prev, m.p, e.pos, e.radius + 4)) { boom = true; break; }
       }
       if (!boom && (i & 1) === (g.frame & 1) && this.hitsWorld(m.p)) boom = true;
@@ -228,7 +228,7 @@ export class Projectiles {
     for (const m of this.missiles) {
       const h = m.hist, L = h.length - 1;
       if (L < 1) continue;
-      const c = m.kill ? KILL_TRAIL : m.owner === 'player' ? PLAYER_TRAIL : ENEMY_TRAIL;
+      const c = m.kill ? KILL_TRAIL : m.owner === 'enemy' ? ENEMY_TRAIL : PLAYER_TRAIL;
       for (let i = 0; i < L && n < this.maxTrailSegs; i++, n++) {
         const a = h[i], b = h[i + 1];
         P[n * 6] = a.x; P[n * 6 + 1] = a.y; P[n * 6 + 2] = a.z;
@@ -244,7 +244,8 @@ export class Projectiles {
   detonate(m) {
     const g = this.game;
     g.scene.remove(m.mesh);
-    explosion(g.particles, m.p.x, m.p.y, m.p.z, m.owner === 'player' ? 0.8 : 0.65, m.owner === 'player' ? 0x15171a : 0xff3b30);
+    const ours = m.owner !== 'enemy';
+    explosion(g.particles, m.p.x, m.p.y, m.p.z, ours ? 0.8 : 0.65, ours ? 0x15171a : 0xff3b30);
     g.audio.explosion(m.p.distanceTo(g.player.pos), 0.6);
     if (m.owner === 'player') {
       // kill missile: the locked target dies, whatever its hull
@@ -254,7 +255,7 @@ export class Projectiles {
         const d = e.pos.distanceTo(m.p);
         if (d < m.splash + e.radius) e.damage(m.damage * (1 - 0.5 * d / (m.splash + e.radius)), 'missile', m.p);
       }
-    } else if (g.player.alive) {
+    } else if (m.owner === 'enemy' && g.player.alive) {
       const d = g.player.pos.distanceTo(m.p);
       if (d < m.splash) g.damagePlayer(m.damage * (1 - 0.6 * d / m.splash), 'missile');
     }

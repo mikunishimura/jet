@@ -84,14 +84,15 @@ class Enemy {
     this.mesh.rotateZ(Math.max(-0.9, Math.min(0.9, -lateral * bankScale)));
     return yawBefore;
   }
-  /** at: world hit point (for the hit effect / damage number) */
-  damage(n, source, at = null) {
+  /** at: world hit point (for the hit effect / damage number); by: co-op teammate id who hit it */
+  damage(n, source, at = null, by = null) {
     if (!this.alive) return;
     const dealt = Math.min(n, this.hp);
     this.hp -= n;
     this.flash = 0.09;
+    this.lastBy = by;
     const kill = this.hp <= 0;
-    this.game.onEnemyHit?.(this, dealt, source, at || this.pos, kill);
+    this.game.onEnemyHit?.(this, dealt, source, at || this.pos, kill, by);
     if (kill) this.die(source);
   }
   die(cause) {
@@ -100,7 +101,7 @@ class Enemy {
     const g = this.game;
     explosion(g.particles, this.pos.x, this.pos.y, this.pos.z, this.radius / 9 + 0.6);
     g.audio.explosion(this.pos.distanceTo(g.player.pos), 1);
-    g.onKill(this, cause);
+    g.onKill(this, cause, this.lastBy);
     this.dispose();
   }
   dispose() { this.alive = false; this.game.scene.remove(this.mesh); }

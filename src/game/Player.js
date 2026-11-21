@@ -41,6 +41,7 @@ export class Player {
     this.seedTurbulence((Math.random() * 1e9) | 0);
     this.scrapeCooldown = 0;
     this.traveled = 0;
+    this.flow = null;        // co-op: { vx, vy, vz, k } drift toward the squad line + rubber band (src/net/squad.js)
     this.speedSys.reset(0);
     this.updateBasis();
   }
@@ -144,6 +145,8 @@ export class Player {
     const turbRate = sys.engaged ? this.gust * tier.turbulence * (1 + 0.5 * sys.charge) * air : 0;
 
     this.heading += (yawRate + turbRate) * dt;
+    // co-op rejoin assist: only while lost far from the squad AND hands off the stick
+    if (this.flow?.yaw && input === 0 && Math.abs(this.steer) < 0.05) this.heading += this.flow.yaw * dt;
     this.throttle = ctl.throttle;
     this.braking = ctl.brake;
 
@@ -153,12 +156,15 @@ export class Player {
 
     // --- move with substeps + terrain contact
     this.prevPos.copy(this.pos);
-    const dist = sys.speed * dt;
-    const steps = Math.max(1, Math.ceil(dist / 20)); // 20 m: thinner than any scaled obstacle
-    const h = dist / steps;
+    // co-op flow: the squad line carries you sideways / along it (never turns the nose)
+    const fl = this.flow, k = fl ? fl.k : 1;
+    const dist = sys.speed * k * dt;
+    const steps = Math.max(1, Math.ceil((dist + (fl ? Math.hypot(fl.vx, fl.vy, fl.vz) * dt : 0)) / 20)); // 20 m: thinner than any scaled obstacle
+    const h = dist / steps, hf = dt / steps;
     const ox = world.origin.x, oz = world.origin.z;
     for (let i = 0; i < steps; i++) {
       this.pos.addScaledVector(this.forward, h);
+      if (fl) { this.pos.x += fl.vx * hf; this.pos.y += fl.vy * hf; this.pos.z += fl.vz * hf; }
       if (this.pos.y > FLIGHT.ceiling) {
         if (this.pos.y > FLIGHT.ceiling + 0.5 && !this.atCeiling) this.emit('ceiling', {});
         this.atCeiling = true;
@@ -172,7 +178,8 @@ export class Player {
       if (hit) { this.resolveContact(hit); if (!this.alive) break; }
     }
     this.traveled += dist;
-    this.vel.copy(this.forward).multiplyScalar(sys.speed);
+    this.vel.copy(this.forward).multiplyScalar(sys.speed * k);
+    if (fl) { this.vel.x += fl.vx; this.vel.y += fl.vy; this.vel.z += fl.vz; }
     // never report vertical motion into a boundary we're pressed against
     if (this.pos.y >= FLIGHT.ceiling - 0.01 && this.vel.y > 0) this.vel.y = 0;
     if (this.pos.y <= FLIGHT.minAltitude + 0.01 && this.vel.y < 0) this.vel.y = 0;

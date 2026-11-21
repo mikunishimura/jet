@@ -168,6 +168,13 @@ export class World {
     for (const d of this.dynamic) for (const fn of d.animated) fn(time);
   }
 
+  /** Build the 3x3 static chunks around an absolute point if missing (deterministic
+   *  checks there give the same answer on every co-op client). */
+  ensureAround(absX, absZ) {
+    const size = this.csize, pcx = Math.floor(absX / size), pcz = Math.floor(absZ / size);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (!this.chunks.has(key(pcx + dx, pcz + dz))) this.buildChunk(pcx + dx, pcz + dz);
+  }
+
   /** Synchronously build everything near a point (used at spawn). */
   prewarm(absX, absZ, fx, fz, tier) {
     for (let i = 0; i < 60; i++) {

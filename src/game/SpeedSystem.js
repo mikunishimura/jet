@@ -50,8 +50,9 @@ export class SpeedSystem {
   /** Tolerance (radians) of the active window. */
   get tolerance() { const n = this.next; return n ? n.tolerance * DEG : this.current.tolerance === Infinity ? 12 * DEG : this.current.tolerance * DEG; }
 
-  /** Force a one-tier drop (head-on terrain crash). */
+  /** Force a one-tier drop (head-on terrain crash). Co-op: the squad decides (the request is sent). */
   drop(reason = 'damage') {
+    if (this.follow) { this.dropRequested = true; return []; }
     if (this.tier <= 1) { this.charge = 0; return []; }
     this.tier--;
     this.charge = 0;
@@ -61,7 +62,44 @@ export class SpeedSystem {
   /** Multiply current speed instantly (impacts). It recovers toward target. */
   knock(fraction) { this.speed *= fraction; }
 
-  update(dt, { heading, pitch = 0, throttle, brake, chargeRate = 1 }) {
+  update(dt, inputs) {
+    if (this.follow) return this.updateFollow(dt, inputs);
+    return this.updateSolo(dt, inputs);
+  }
+
+  /**
+   * Co-op: the squad owns the barrier (server/room.js -> SquadBarrier). `follow`
+   * = { tier, charge, refHeading, refPitch } from the latest squad state. We
+   * still judge OUR line against the squad's reference (HUD ring, window) and
+   * fly our own speed (brake, knocks), but tiers and charge come from the squad.
+   */
+  updateFollow(dt, { heading, pitch = 0, throttle, brake }) {
+    const events = [];
+    if (!this.engaged) {
+      if (throttle) { this.engaged = true; events.push({ type: 'launch' }); }
+      else { this.speed = 0; this.targetSpeed = 0; return events; }
+    }
+    const f = this.follow, cfg = this.cfg;
+    if (f.tier !== this.tier) {
+      const up = f.tier > this.tier;
+      this.tier = Math.max(1, Math.min(this.maxTier, f.tier));
+      this.maxTierReached = Math.max(this.maxTierReached, this.tier);
+      events.push({ type: up ? 'tierUp' : 'tierDown', tier: this.tier, reason: f.reason || 'squad' });
+    }
+    this.refHeading = f.refHeading; this.refPitch = f.refPitch;
+    this.deviation = angleDiff(heading, this.refHeading);
+    this.deviationPitch = pitch - this.refPitch;
+    this.deviationMag = Math.hypot(this.deviation * Math.cos(pitch), this.deviationPitch);
+    this.inWindow = this.deviationMag <= this.tolerance;
+    this.charge = this.next ? Math.max(0, Math.min(1, f.charge)) : 0;
+    const base = this.current.speed;
+    this.targetSpeed = base * (1 + cfg.chargeOverspeed * this.charge) * (brake ? 1 - cfg.brakeSpeedCut : 1);
+    const rate = this.targetSpeed > this.speed ? cfg.accel : cfg.decel;
+    this.speed += (this.targetSpeed - this.speed) * (1 - Math.exp(-rate * dt));
+    return events;
+  }
+
+  updateSolo(dt, { heading, pitch = 0, throttle, brake, chargeRate = 1 }) {
     const events = [];
     if (!this.engaged) {
       if (throttle) { this.engaged = true; events.push({ type: 'launch' }); }

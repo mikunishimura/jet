@@ -7,6 +7,22 @@ const PROBES = [0, 5, -5, 10, -10, 18, -18, 28, -28, 42, -42, 60, -60];
 
 export class Autopilot {
   constructor(game) { this.game = game; this.cruise = FLIGHT.altitude; this.commit = 0; this.commitDir = 0; this.missileT = 3; this.tapW = true; }
+  /** fly to our formation slot on the human leader: pursue a point 1 s ahead of the slot */
+  wing(ctl) {
+    const g = this.game, p = g.player, o = g.world.origin;
+    const t = g.net.wingTarget(this._wt || (this._wt = {}));
+    if (!t) { this.cruise = FLIGHT.altitude; return false; }
+    const mx = p.pos.x + o.x, mz = p.pos.z + o.z;
+    const lead = Math.max(p.speed, t.speed) * 1.0;
+    const ax = t.x + t.fx * lead, az = t.z + t.fz * lead;
+    let err = Math.atan2(-(ax - mx), -(az - mz)) - p.heading;
+    err = Math.atan2(Math.sin(err), Math.cos(err));                // + = turn left
+    if (Math.abs(err) > 0.03) { if (err > 0) ctl.left = true; else ctl.right = true; }           // hold the turn
+    else if (Math.abs(err) > 0.002 && Math.abs(p.steer) < 0.12) { if (err > 0) ctl.left = true; else ctl.right = true; } // trim taps
+    this.cruise = Math.max(FLIGHT.minAltitude + 40, t.y);
+    return true;
+  }
+
   control(dt) {
     const g = this.game, p = g.player, s = p.speedSys, w = g.world;
     const ox = w.origin.x, oz = w.origin.z;
@@ -45,6 +61,8 @@ export class Autopilot {
         const dx = pk.pos.x - p.pos.x, dz = pk.pos.z - p.pos.z;
         const side = dx * p.right.x + dz * p.right.z;
         if (Math.abs(side) > 10) { if (side > 0) ctl.right = true; else ctl.left = true; }
+      } else if (g.bot && g.net?.active && this.wing(ctl)) {
+        // demo wingman: steering handled (formation slot on the human leader)
       } else {
         // trim: hold the reference line with micro-taps
         const dev = s.deviation, tol = s.tolerance;

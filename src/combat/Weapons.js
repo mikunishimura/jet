@@ -304,6 +304,7 @@ export class Weapons {
         prox: K.prox, life: K.life, armDelay: 0, kill: true,
       });
       g.audio.missileLaunch(true);
+      if (g.net?.active) g.net.sendMissile(target);   // teammates draw it
       return;
     }
     // launched down the crosshair (plus a little side ejection), relative to the jet

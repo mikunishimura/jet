@@ -36,6 +36,13 @@ export class JetModel {
     this.trails.forEach((tr, k) => { tr.n = 0; tr.used = k < this.nozzles.length; tr.line.visible = false; });
   }
 
+  /** remove from the scene (co-op: a teammate left) */
+  dispose() {
+    this.scene.remove(this.root);
+    for (const tr of this.trails) { this.scene.remove(tr.line); tr.line.geometry.dispose(); }
+    this.root.traverse((o) => o.geometry?.dispose());
+  }
+
   makeTrail() {
     const pos = new Float32Array(TRAIL_N * 3), col = new Float32Array(TRAIL_N * 4);
     const g = new THREE.BufferGeometry();
