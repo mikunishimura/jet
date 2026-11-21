@@ -81,7 +81,6 @@ Effects are vector-style, never realistic: explosions are expanding wireframe sh
 All numbers are in `JUICE` (`src/config.js`), and the timelines in `src/render/Juice.js`.
 
 **Ambient layer** (always on, Beat Stomper's background motion for a velocity game). A conductor (`src/render/Ambient.js`) turns speed, barrier charge, the engine's own sound (a frequency analyser on the engine and effects buses, before the user volume) and a beat clock whose tempo rises with Mach into what the layer draws (`src/render/AmbientLayer.js`):
-- **Engine visualizer**: a ring of translucent ink columns standing on the horizon, a stepped skyline whose heights follow the engine spectrum; gunfire and barrier charge make columns jump.
 - **Beat wave**: on every beat a band runs down the floor grid toward the horizon. It only darkens grid lines (measured: < 0.2% screen luminance, far from the 10% that makes a flash).
 - **Distance numerals**: giant `NNN KM` markers lie on the floor every 10 km and rush under you.
 - **Mach in the sky**: the live Mach number, huge and faint, painted ahead of you behind the clouds.

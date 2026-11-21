@@ -1,12 +1,11 @@
 // The always-on background layer (Beat Stomper's ambient motion, for a velocity
-// game): engine visualizer, beat wave on the floor, km numerals on the ground,
+// game): beat wave on the floor, km numerals on the ground,
 // live Mach number in the sky, sky drifting toward space, a megastructure ring
 // on the horizon, light shafts, ink dust and dark halos on threats.
 // Everything is driven by the AmbientConductor's output and scaled by its gate.
 import * as THREE from 'three';
 import { AMBIENT, PALETTE, MACH_FACTOR } from '../config.js';
 import { SHAPE } from './Particles.js';
-import { CURVE, CURVE_GLSL } from './curvature.js';
 
 function textCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
 function drawText(canvas, text, px) {
@@ -42,50 +41,6 @@ function ringGeometry(R, segs) {
   return g;
 }
 
-// engine visualizer: a ring of ink columns standing on the horizon around you,
-// heights from the engine spectrum (Beat Stomper's skyline). Geometry, so it sits
-// in front of the distant cloud deck and behind nearby terrain.
-const eqVert = /* glsl */`
-  ${CURVE_GLSL}
-  attribute float aCol;     // column index
-  attribute float aTop;     // 0 bottom, 1 top
-  uniform sampler2D uBands;
-  uniform vec2 uH;          // min / max height (m)
-  uniform float uBoost;     // speed + beat scaling
-  varying float vTop;
-  void main() {
-    // each column: a fixed skyline height, scaled by a randomly assigned band, so the
-    // engine's steady spectrum reads as a stepped skyline and gunfire/charge spike columns
-    float shape = fract(sin(aCol * 12.9898) * 43758.5453);
-    float band = floor(fract(sin(aCol * 78.233) * 12345.678) * 32.0);
-    float lev = texture2D(uBands, vec2((band + 0.5) / 32.0, 0.5)).r;
-    vec4 wp = modelMatrix * vec4(position, 1.0);
-    wp.y = aTop * (uH.x + (uH.y - uH.x) * (0.2 + 0.5 * shape) * (0.4 + 0.9 * lev)) * uBoost;
-    vTop = aTop;
-    gl_Position = projectionMatrix * viewMatrix * curveWorld(wp);
-  }
-`;
-const eqFrag = /* glsl */`
-  uniform vec3 uColor; uniform float uAlpha;
-  varying float vTop;
-  void main() { gl_FragColor = vec4(uColor, uAlpha * (0.55 + 0.45 * vTop)); }
-`;
-function eqGeometry(R, cols) {
-  const pos = [], col = [], top = [], idx = [];
-  for (let i = 0; i < cols; i++) {
-    const a0 = (i / cols) * Math.PI * 2, a1 = ((i + 0.78) / cols) * Math.PI * 2;
-    const b = pos.length / 3;
-    for (const [a, t] of [[a0, 0], [a1, 0], [a0, 1], [a1, 1]]) { pos.push(Math.cos(a) * R, 0, Math.sin(a) * R); col.push(i); top.push(t); }
-    idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('aCol', new THREE.Float32BufferAttribute(col, 1));
-  g.setAttribute('aTop', new THREE.Float32BufferAttribute(top, 1));
-  g.setIndex(idx);
-  return g;
-}
-
 function haloTexture() {
   const c = textCanvas(64, 64), g = c.getContext('2d');
   const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
@@ -98,10 +53,6 @@ export class AmbientLayer {
   constructor(game, cfg = AMBIENT) {
     this.game = game; this.cfg = cfg;
     const scene = game.scene;
-    // engine spectrum texture for the sky's horizon visualizer
-    this.bandData = new Uint8Array(cfg.eq.bands * 4);
-    this.bandTex = new THREE.DataTexture(this.bandData, cfg.eq.bands, 1);
-    this.bandTex.needsUpdate = true;
     // live Mach number for the sky
     this.machCanvas = textCanvas(1024, 384);
     this.machTex = new THREE.CanvasTexture(this.machCanvas);
@@ -109,13 +60,6 @@ export class AmbientLayer {
     const su = game.sky.material.uniforms;
     su.uMachTex.value = this.machTex;
     su.uSpaceZen.value.set(cfg.space.zenith); su.uStars.value = cfg.space.stars;
-    this.eqMat = new THREE.ShaderMaterial({
-      uniforms: { uBands: { value: this.bandTex }, uH: { value: new THREE.Vector2(cfg.eq.height[0], cfg.eq.height[1]) }, uBoost: { value: 1 },
-        uColor: { value: new THREE.Color(PALETTE.ink) }, uAlpha: { value: 0 }, uCurve: CURVE },
-      vertexShader: eqVert, fragmentShader: eqFrag, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    });
-    this.eq = new THREE.Mesh(eqGeometry(cfg.eq.radius, cfg.eq.cols), this.eqMat);
-    this.eq.frustumCulled = false; scene.add(this.eq);
     su.uShafts.value.set(cfg.shafts.alpha, cfg.shafts.count);
 
     // km numerals lying on the floor ahead of you
@@ -166,11 +110,6 @@ export class AmbientLayer {
     // --- sky + floor uniforms
     const su = g.sky.material.uniforms;
     su.uAmb.value = gate; su.uSpace.value = amb.space; su.uBeat.value = amb.pulse;
-    this.eq.position.set(cam.position.x, 0, cam.position.z);
-    this.eqMat.uniforms.uAlpha.value = cfg.eq.strength * gate;
-    this.eqMat.uniforms.uBoost.value = (0.55 + 0.45 * Math.min(1, s.speed / 19000)) * (1 + 0.12 * amb.pulse / Math.max(1e-6, cfg.pulse.amp));
-    for (let i = 0; i < cfg.eq.bands; i++) this.bandData[i * 4] = Math.round(amb.bands[i] * 255);
-    this.bandTex.needsUpdate = true;
     const gu = g.ground.material.uniforms;
     gu.uPulse.value.set(amb.pulse * gate, amb.phase * cfg.pulse.far);
     // live Mach number in the sky (redrawn only when the integer changes)

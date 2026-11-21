@@ -217,7 +217,7 @@ export const JUICE = {
 export const AMBIENT = {
   master: 1,
   fade: 4,                                  // 1/s: how fast the layer fades in/out
-  eq: { bands: 32, cols: 64, strength: 0.3, height: [250, 2600], radius: 30000, smooth: 0.25 }, // engine visualizer: ink columns standing on the horizon (m); Beat Stomper's runs at 0.3
+  eq: { bands: 32, smooth: 0.25 },          // engine spectrum (drives the breathing)
   pulse: { amp: 0.35, decay: 4.5, far: 9000 },  // beat wave down the floor grid (darkens lines only)
   space: { zenith: 0x060914, stars: 0.9 },      // sky drifts toward space with tier
   numerals: { spacing: 10000, ahead: 7000, width: 2400, alpha: 0.18, pool: 4 }, // km markers on the floor

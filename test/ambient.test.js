@@ -60,7 +60,7 @@ test('the sky progresses toward space only as you climb tiers', () => {
   assert.ok(vals[0] < 0.05 && vals[4] > 0.8, vals.join(', '));
 });
 
-test('without audio yet, the engine visualizer still reacts to throttle, speed and charge', () => {
+test('without audio yet, the engine spectrum model still reacts to throttle, speed and charge', () => {
   const idle = run(new AmbientConductor(), 2, { throttle: false, speed01: 0.05 }).pop();
   const hot = run(new AmbientConductor(), 2, { throttle: true, speed01: 0.9, charge: 0.8 }).pop();
   const sum = (b) => b.reduce((a, v) => a + v, 0);
