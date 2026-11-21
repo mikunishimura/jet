@@ -1,6 +1,6 @@
 // Turns gameplay events into screen-effect envelopes (post uniforms, camera
 // shake, FOV punches, hit-stop). Everything decays on its own.
-import { TIERS, JUICE, MACH_FACTOR, tierLevel } from '../config.js';
+import { TIERS, JUICE, MACH_FACTOR, tierLevel, AMBIENT } from '../config.js';
 import { gateFrame, boostFrame, isMilestone } from './Juice.js';
 
 const decay = (v, rate, dt) => v * Math.exp(-rate * dt);
@@ -134,11 +134,13 @@ export class FXDirector {
     u.uGlitch.value = this.glitch * I;
     u.uRipple.value = this.ripple * I;
     u.uAberration.value = this.ab * I;
-    u.uBlur.value = (Math.pow(speed01, 1.3) * 0.95 + s.charge * 0.25) * P.blur;
+    // ambient breathing: the frame tightens a little with the engine's loudness
+    const breathe = s.ambient ? s.ambient.loud * s.ambient.gate : 0;
+    u.uBlur.value = (Math.pow(speed01, 1.3) * 0.95 + s.charge * 0.25 + AMBIENT.breathe.blur * breathe) * P.blur;
     u.uHaze.value = s.charge * (s.tier >= 1 ? 1 : 0);
     u.uDamage.value = Math.max(this.damage, s.lowHealthPulse);
     u.uDesat.value = this.desat;
-    u.uVignette.value = 0.08 + 0.12 * speed01; // light: keep the white world white
+    u.uVignette.value = 0.08 + 0.12 * speed01 + AMBIENT.breathe.vignette * breathe; // light: keep the white world white
     u.uCone.value = Math.max(0, (s.charge - 0.55) / 0.45) * (s.hasNext ? 1 : 0);
   }
   get timeScale() { return this.hitStop > 0 ? 0.22 : 1; }

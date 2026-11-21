@@ -1,11 +1,13 @@
 // Orchestrates systems, the frame loop, game state, director, scoring.
 import * as THREE from 'three';
-import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV } from '../config.js';
+import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV, AMBIENT } from '../config.js';
 import { Settings } from '../core/Settings.js';
 import { SettingsPanel } from '../ui/SettingsPanel.js';
 
 const AIM_BASE_SENSITIVITY = AIM.sensitivity; // settings scale this
 import { isMilestone } from '../render/Juice.js';
+import { AmbientConductor } from '../render/Ambient.js';
+import { AmbientLayer } from '../render/AmbientLayer.js';
 import { Input } from '../core/input.js';
 import { World } from '../world/World.js';
 import { PathHazards } from '../world/PathHazards.js';
@@ -66,6 +68,10 @@ export class Game {
     // one glyph system (hard shapes, stepped fade) + vector shells/rings; `add` kept as an alias
     const glyphs = new Particles(this.scene, 7000);
     this.particles = { normal: glyphs, add: glyphs, vector: new VectorFX(this.scene, this.camera) };
+    // always-on background layer (Beat Stomper-style ambient motion)
+    this.ambientConductor = new AmbientConductor();
+    this.ambientBands = new Float32Array(AMBIENT.eq.bands);
+    this.ambient = new AmbientLayer(this);
     this.player = new Player((type, e) => this.onPlayerEvent(type, e));
     this.aim = new Aim();
     // mouse aim: capture the pointer when the player clicks into the game
@@ -173,6 +179,7 @@ export class Game {
     this.hazards.reset();
     this.difficulty = 0;
     this.player.reset();
+    this.ambient?.reset();
     this.aim?.reset();
     this.player.invincible = this.attract;
     this.projectiles.reset();
@@ -416,6 +423,7 @@ export class Game {
     this.pickups.rebase(dx, dz);
     this.particles.normal.rebase(dx, dz); this.particles.vector.rebase(dx, dz);
     this.jet.rebase(dx, dz);
+    this.ambient.rebase(dx, dz);
   }
 
   // ---------------------------------------------------------------- loop
@@ -492,8 +500,13 @@ export class Game {
     this.scene.fog.density = WORLD.fogDensityBase + WORLD.fogDensityPerTier * (s.level - 1);
     this.rig.update(dt, p, this.fx, this.aim);
     this.camera.updateMatrixWorld();
+    const amb = this.ambientConductor.update(real, {
+      speed01: s.speed / TIERS[TIERS.length - 1].speed, level: s.level, tier: s.tier, charge: s.charge,
+      throttle: p.throttle, braking: p.braking, boosting: this.fx.boosting, alive: p.alive && s.engaged,
+      bands: this.audio.readBands(this.ambientBands) ? this.ambientBands : null, prefs: this.fx.prefs,
+    });
     this.fx.update(real, this.time, {
-      speed: s.speed, charge: s.charge, tier: s.tier, hasNext: !!s.next, center: this.jetOnScreen(),
+      speed: s.speed, charge: s.charge, tier: s.tier, hasNext: !!s.next, center: this.jetOnScreen(), ambient: amb,
       lowHealthPulse: p.alive && p.health < 30 && !this.attract ? (0.25 + 0.15 * Math.sin(this.time * 8)) * (1 - p.health / 30) : 0,
     });
     const pov = this.rig.mode === 'cockpit';
@@ -507,6 +520,7 @@ export class Game {
     this.ground.update(this.camera, this.world.origin, s.speed);
     this.sky.update(this.camera, this.world.origin, this.time, (s.level - 1) / 4, p.flatForward, s.speed);
     this.clouds.update(this.camera, this.world.origin, this.time, p.flatForward, s.speed);
+    this.ambient.update(dt, amb);
     updateCurvature(this.camera.position.y); // the higher you are, the rounder the world
     patchTree(this.scene);                   // newly spawned built-in materials get curvature too
     // punching through the cloud deck

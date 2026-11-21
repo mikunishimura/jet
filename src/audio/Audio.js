@@ -40,6 +40,10 @@ export class Audio {
     // user-adjustable buses (settings): continuous engine bed vs one-shot effects
     this.engineBus = ctx.createGain(); this.engineBus.connect(this.master);
     this.sfxBus = ctx.createGain(); this.sfxBus.connect(this.master);
+    // ambient layer: spectrum of the engine + effects, tapped before the user volume
+    // so muting doesn't flatten the visualizer (the analyser is not routed to the speakers)
+    this.analyser = ctx.createAnalyser(); this.analyser.fftSize = 512; this.analyser.smoothingTimeConstant = 0.55;
+    this.engineBus.connect(this.analyser); this.sfxBus.connect(this.analyser);
     this.applyLevels();
 
     // noise buffer shared by everything
@@ -83,6 +87,22 @@ export class Audio {
   }
 
   get t() { return this.ctx.currentTime; }
+
+  /** Fill `out` (0..1 each) with log-spaced spectrum bands. false before audio starts. */
+  readBands(out) {
+    const a = this.analyser;
+    if (!a) return false;
+    const buf = this._fbuf || (this._fbuf = new Uint8Array(a.frequencyBinCount));
+    a.getByteFrequencyData(buf);
+    const n = out.length, N = buf.length;
+    for (let i = 0; i < n; i++) {
+      const lo = Math.floor(Math.pow(N, i / n)), hi = Math.max(lo + 1, Math.floor(Math.pow(N, (i + 1) / n)));
+      let m = 0;
+      for (let j = lo; j < hi && j < N; j++) m = Math.max(m, buf[j]);
+      out[i] = m / 255;
+    }
+    return true;
+  }
 
   /** continuous parameters every frame (level = tierLevel, 1..5) */
   update(speed01, tier, charge, throttle, braking, alive) {

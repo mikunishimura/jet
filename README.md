@@ -80,6 +80,17 @@ Effects are vector-style, never realistic: explosions are expanding wireframe sh
 
 All numbers are in `JUICE` (`src/config.js`), and the timelines in `src/render/Juice.js`.
 
+**Ambient layer** (always on, Beat Stomper's background motion for a velocity game). A conductor (`src/render/Ambient.js`) turns speed, barrier charge, the engine's own sound (a frequency analyser on the engine and effects buses, before the user volume) and a beat clock whose tempo rises with Mach into what the layer draws (`src/render/AmbientLayer.js`):
+- **Engine visualizer**: a ring of translucent ink columns standing on the horizon, a stepped skyline whose heights follow the engine spectrum; gunfire and barrier charge make columns jump.
+- **Beat wave**: on every beat a band runs down the floor grid toward the horizon. It only darkens grid lines (measured: < 0.2% screen luminance, far from the 10% that makes a flash).
+- **Distance numerals**: giant `NNN KM` markers lie on the floor every 10 km and rush under you.
+- **Mach in the sky**: the live Mach number, huge and faint, painted ahead of you behind the clouds.
+- **Toward space**: the zenith darkens and stars come out as you climb tiers.
+- **Megastructure**: a colossal wireframe ring rises over the horizon, slowly turning, closer at higher tiers.
+- **Light shafts**, **ink dust** you rush through, **dark halos** on enemies and incoming missiles that swell on the beat, and a slight **breathing** of vignette and blur with engine loudness.
+
+It fades out during the boost negative, follows the `fx.intensity` setting (the beat wave stops with `fx.flashes` off), and `AMBIENT.master = 0` turns it off. Every number is in `AMBIENT` (`src/config.js`).
+
 Restricted palette: a pure white world (measured R = G = B on screen; neutral lighting, no warm tints, light vignette, no constant chromatic fringing), black obstacles, grays for everything else, and a single accent (red) reserved for hostiles, damage and warnings. The palette lives in `PALETTE` (`src/config.js`) and the CSS variables in `src/style.css`. The UI is a flat terminal style: JetBrains Mono everywhere, block-character bars (`[████░░░░]`), a timestamped event log, terminal-window menus, and no glow, blur or shadows.
 
 ## Architecture
@@ -160,5 +171,5 @@ Then add `import './tunnels.js';` to `features/index.js`. For animated things (a
 
 ## Verification
 
-- `npm test`: 48 tests, including pacing (first Mach change ≤ 1 s after launch, then one per barrier hold; a human-rate pilot sim reaches tier V in ≥ 8/10 runs), no tier loss from damage, near-miss detection (fires once, only close, never on touched obstacles, once per wall side), and the event-juice timelines (gate envelope and smear, the white-frame cut, beat-synced flips that always end positive, ≤ 3 flashes/s), and world density (static obstacles per 30 km straight lane) and path-event pacing (same rhythm at tier I and V), including vertical flight (auto-level, ceiling, steep vs shallow ground contact, pitch breaking the line, ground-effect charging, cone-collider flank normals). Tier rules, tolerance shrinking, brake/cap/drop, head-on vs edge collisions, and a flight-model simulation: a human-rate trimmer (1–8 frame taps every 150 ms) reaches tier V in ≥90% of runs, while hands-off flight rarely does.
+- `npm test`: 71 tests, including the ambient conductor (beat follows the Mach tempo and stays phase-continuous, the pulse can't flash, the layer fades out during the boost / at 0 intensity / when dead, sky progression, engine model before audio starts), pacing (first Mach change ≤ 1 s after launch, then one per barrier hold; a human-rate pilot sim reaches tier V in ≥ 8/10 runs), no tier loss from damage, near-miss detection (fires once, only close, never on touched obstacles, once per wall side), and the event-juice timelines (gate envelope and smear, the white-frame cut, beat-synced flips that always end positive, ≤ 3 flashes/s), and world density (static obstacles per 30 km straight lane) and path-event pacing (same rhythm at tier I and V), including vertical flight (auto-level, ceiling, steep vs shallow ground contact, pitch breaking the line, ground-effect charging, cone-collider flank normals). Tier rules, tolerance shrinking, brake/cap/drop, head-on vs edge collisions, and a flight-model simulation: a human-rate trimmer (1–8 frame taps every 150 ms) reaches tier V in ≥90% of runs, while hands-off flight rarely does.
 - Browser playtests (Playwright, autopilot): 110–120 fps, ~130–290 draw calls, 0 frames over 34 ms after shader warm-up, 0 console errors.

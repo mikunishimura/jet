@@ -92,6 +92,15 @@ const frag = /* glsl */`
   uniform vec3 uOutline;
   uniform float uTint;
   uniform float uCamAlt;   // camera altitude (km)
+  // ambient layer (AmbientLayer.js): all scaled by uAmb, 0 = untouched sky
+  uniform float uAmb;      // ambient gate 0..1
+  uniform float uSpace;    // 0 day .. 1 edge of space (with tier)
+  uniform vec3 uSpaceZen;
+  uniform float uStars;
+  uniform float uBeat;     // beat swell 0..pulse amp
+  uniform vec2 uShafts;    // x alpha, y count
+  uniform sampler2D uMachTex;
+  uniform float uMachA;
   varying vec3 vDir;
 
   ${CLOUD_GLSL}
@@ -104,6 +113,23 @@ const frag = /* glsl */`
     vec3 col = mix(uHorizon, uMid, smoothstep(0.0, 0.22, up));
     col = mix(col, zen, smoothstep(0.18, 0.9, up));
     col += vec3(0.05) * exp(-max(up, 0.0) * 24.0); // bright haze line at the horizon
+
+    // ambient: the sky drifts toward space as you climb tiers (zenith darkens, stars come out)
+    float azA = atan(d.x, d.z);
+    float spc = uSpace * uAmb;
+    col = mix(col, uSpaceZen, spc * 0.88 * smoothstep(0.06, 0.85, up));
+    vec2 sg = vec2(azA * 90.0, up * 90.0);
+    vec2 scell = floor(sg);
+    float shs = fract(sin(dot(scell, vec2(12.9898, 78.233))) * 43758.5453);
+    float star = step(0.986, shs) * (1.0 - smoothstep(0.06, 0.2, length(fract(sg) - 0.5)));
+    col += vec3(star) * spc * uStars * smoothstep(0.12, 0.45, up) * (0.75 + 0.25 * sin(uTime * 2.3 + shs * 40.0));
+    // ambient: soft light shafts at fixed world azimuths, sliding past as you turn
+    float sa = (azA + 3.14159265) / 6.2831853 * uShafts.y + uTime * 0.008;
+    float sid = floor(sa);
+    float son = step(0.4, fract(sin(sid * 91.7) * 4375.85));
+    float sw = abs(fract(sa) - 0.5);
+    float shaft = son * (1.0 - smoothstep(0.0, 0.05 + 0.04 * fract(sid * 7.31), sw)) * smoothstep(0.0, 0.06, up) * (1.0 - smoothstep(0.25, 0.7, up));
+    col += vec3(uShafts.x * uAmb * (1.0 - 0.6 * spc)) * shaft;
 
     // sun: crisp disc + soft white halo (no warm tint)
     float sd = max(dot(d, uSun), 0.0);
@@ -127,6 +153,13 @@ const frag = /* glsl */`
 
     // high cumulus field (slow parallax), always above you (ceiling < deck).
     // The LOW deck is real geometry (Clouds.js) so you can fly above it.
+    // ambient: the live Mach number painted huge and faint in the far sky, ahead of you,
+    // behind the clouds (typography as scenery)
+    vec2 dh = normalize(d.xz + vec2(1e-6));
+    float relA = atan(uFlight.x * dh.y - uFlight.y * dh.x, dot(uFlight, dh));
+    vec2 guv = vec2(0.5 + relA / 1.1, (up - 0.16) / 0.34);
+    if (guv.x > 0.0 && guv.x < 1.0 && guv.y > 0.0 && guv.y < 1.0) col = mix(col, uOutline * 0.45, texture2D(uMachTex, guv).a * uMachA * uAmb);
+
     float upc = max(up, 0.012);
     vec2 relH = d.xz * (max(0.5, uHighH - uCamAlt) / upc) / uHighScale;
     vec4 ch = toon(uHighOff + relH, 0.54, uSun.xz * 0.16);
@@ -169,6 +202,9 @@ export class Sky {
         uOutline: { value: c(SKY_COLORS.outline) },
         uTint: { value: 0 },
         uCamAlt: { value: 0 },
+        uAmb: { value: 0 }, uSpace: { value: 0 }, uSpaceZen: { value: c(0x060914) }, uStars: { value: 0.9 },
+        uBeat: { value: 0 }, uShafts: { value: new THREE.Vector2(0.07, 7) },
+        uMachTex: { value: null }, uMachA: { value: 0 },
       },
       vertexShader: vert, fragmentShader: frag, side: THREE.BackSide, depthWrite: false,
     });

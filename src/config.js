@@ -210,6 +210,25 @@ export const JUICE = {
   },
 };
 
+// Ambient layer: always-on, Beat Stomper-style background motion driven by
+// speed, barrier charge, the engine's own sound and a beat clock whose tempo
+// rises with Mach. Subtle by design: it fades out during the boost negative,
+// follows the fx.intensity / fx.flashes settings, and master: 0 turns it off.
+export const AMBIENT = {
+  master: 1,
+  fade: 4,                                  // 1/s: how fast the layer fades in/out
+  eq: { bands: 32, cols: 64, strength: 0.3, height: [250, 2600], radius: 30000, smooth: 0.25 }, // engine visualizer: ink columns standing on the horizon (m); Beat Stomper's runs at 0.3
+  pulse: { amp: 0.35, decay: 4.5, far: 9000 },  // beat wave down the floor grid (darkens lines only)
+  space: { zenith: 0x060914, stars: 0.9 },      // sky drifts toward space with tier
+  numerals: { spacing: 10000, ahead: 7000, width: 2400, alpha: 0.18, pool: 4 }, // km markers on the floor
+  machGhost: { alpha: 0.075 },                  // live Mach number painted in the far sky
+  ring: { alpha: 0.3, radius: 1900, dist: [5200, 3900], spin: 0.012, segments: 160 }, // megastructure, rising over the horizon
+  breathe: { vignette: 0.07, blur: 0.06 },      // post breathes with engine loudness
+  shafts: { alpha: 0.07, count: 7 },            // distant light shafts sliding past
+  dust: { rate: 40, life: 1.1 },                // near-field ink dust
+  halos: { strength: 0.32, max: 8, range: 6000 }, // dark auras on threats, pulsing on the beat
+};
+
 export const PALETTE = {
   // Restricted palette: white world, ink/dark-gray outlines, ONE accent (red)
   // reserved for hostiles, damage and warnings.

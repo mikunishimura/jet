@@ -57,6 +57,8 @@ const frag = /* glsl */`
   uniform vec3 uLine;
   uniform vec3 uAccent;
   uniform vec3 uCamPos;
+  uniform vec2 uPulse;       // ambient beat wave: x strength, y front distance (m)
+  uniform float uPulseW;
     varying vec3 vWorld;
 
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -86,6 +88,13 @@ const frag = /* glsl */`
     // 1 km and 5 km grids: the lines that carry speed at Mach 50+
     col = mix(col, uLine * 0.8, gridLine(p, 1000.0, 0.7) * 0.45 * lod(1000.0));
     col = mix(col, uLine * 0.6, gridLine(p, 5000.0, 0.8) * 0.55);
+    // ambient beat wave: a band running down the grid toward the horizon on every beat.
+    // It only darkens grid lines (never the floor), so it can't read as a flash.
+    if (uPulse.x > 0.0) {
+      float lines = max(gridLine(p, 1000.0, 0.9) * lod(1000.0), gridLine(p, 250.0, 0.8) * lod(250.0));
+      float wv = (dist - uPulse.y) / uPulseW;
+      col = mix(col, uLine * 0.4, lines * exp(-wv * wv) * uPulse.x);
+    }
     // tiny crosses at 25 m intersections when close (lab tape markers)
     vec2 q = abs(fract(p / 25.0 + 0.5) - 0.5) * 25.0;
     float cross = step(min(q.x, q.y), 0.18) * step(max(q.x, q.y), 1.4) * (1.0 - smoothstep(150.0, 400.0, dist)) * lod(25.0);
@@ -125,6 +134,7 @@ export class Ground {
         uAccent: { value: new THREE.Color(PALETTE.hazard) },
         uCamPos: { value: new THREE.Vector3() },
         uSpeed: { value: 0 },
+        uPulse: { value: new THREE.Vector2() }, uPulseW: { value: 600 },
         uScale: { value: WORLD_SCALE },
       }]),
       vertexShader: vert, fragmentShader: frag, fog: true, side: THREE.DoubleSide,
