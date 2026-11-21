@@ -81,7 +81,8 @@ export class HUD {
       `<span class="d">t+    </span><span class="big">${fmtTime(g.stats.time)}</span>\n` +
       `<span class="d">dist  </span>${fmtKm(g.stats.fromSpawn)} km\n` +
       `<span class="d">kills </span>${g.stats.kills}\n` +
-      `<span class="d">pts   </span>${g.score.toLocaleString('en-US')}`);
+      `<span class="d">pts   </span>${g.score.toLocaleString('en-US')}` +
+      (this.showFps ? `\n<span class="d">fps   </span>${Math.round(g.perf.fps)}` : ''));
 
     // speed block
     const chg = chargeDisplay(s.charge);

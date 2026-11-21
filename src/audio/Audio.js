@@ -12,6 +12,18 @@ export class Audio {
     this.ctx = null;
     this.enabled = true;
     this.lastGun = 0;
+    this.levels = { muted: false, master: 0.8, engine: 0.8, sfx: 0.9 };
+  }
+
+  /** user audio settings: { muted, master, engine, sfx } (0..1). Safe before init. */
+  setLevels(levels) { this.levels = { ...this.levels, ...levels }; this.applyLevels(); }
+  applyLevels() {
+    if (!this.ctx || !this.master) return;
+    const L = this.levels, t = this.ctx.currentTime;
+    // 0.55 was the original mix level: master 1.0 keeps the old loudness ceiling
+    this.master.gain.setTargetAtTime(L.muted ? 0 : 0.55 * L.master, t, 0.03);
+    this.engineBus.gain.setTargetAtTime(L.engine, t, 0.03);
+    this.sfxBus.gain.setTargetAtTime(L.sfx, t, 0.03);
   }
 
   /** ctx: optional context to render into (e.g. an OfflineAudioContext for measurements) */
@@ -25,6 +37,10 @@ export class Audio {
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -16; comp.ratio.value = 6;
     this.master.connect(this.duck); this.duck.connect(comp); comp.connect(ctx.destination);
+    // user-adjustable buses (settings): continuous engine bed vs one-shot effects
+    this.engineBus = ctx.createGain(); this.engineBus.connect(this.master);
+    this.sfxBus = ctx.createGain(); this.sfxBus.connect(this.master);
+    this.applyLevels();
 
     // noise buffer shared by everything
     const len = ctx.sampleRate * 2;
@@ -39,24 +55,24 @@ export class Audio {
     this.osc2 = ctx.createOscillator(); this.osc2.type = 'square'; this.osc2.frequency.value = 55.7;
     const o2g = ctx.createGain(); o2g.gain.value = 0.4;
     this.osc1.connect(this.engFilter); this.osc2.connect(o2g); o2g.connect(this.engFilter);
-    this.engFilter.connect(this.engGain); this.engGain.connect(this.master);
+    this.engFilter.connect(this.engGain); this.engGain.connect(this.engineBus);
     this.osc1.start(); this.osc2.start();
 
     this.roar = this.loopNoise();
     this.roarFilter = ctx.createBiquadFilter(); this.roarFilter.type = 'bandpass'; this.roarFilter.frequency.value = 600; this.roarFilter.Q.value = 0.7;
     this.roarGain = ctx.createGain(); this.roarGain.gain.value = 0;
-    this.roar.connect(this.roarFilter); this.roarFilter.connect(this.roarGain); this.roarGain.connect(this.master);
+    this.roar.connect(this.roarFilter); this.roarFilter.connect(this.roarGain); this.roarGain.connect(this.engineBus);
 
     this.wind = this.loopNoise();
     this.windFilter = ctx.createBiquadFilter(); this.windFilter.type = 'highpass'; this.windFilter.frequency.value = 1500;
     this.windGain = ctx.createGain(); this.windGain.gain.value = 0;
-    this.wind.connect(this.windFilter); this.windFilter.connect(this.windGain); this.windGain.connect(this.master);
+    this.wind.connect(this.windFilter); this.windFilter.connect(this.windGain); this.windGain.connect(this.engineBus);
 
     // barrier riser
     this.riser = ctx.createOscillator(); this.riser.type = 'sawtooth'; this.riser.frequency.value = 120;
     this.riserFilter = ctx.createBiquadFilter(); this.riserFilter.type = 'bandpass'; this.riserFilter.Q.value = 8; this.riserFilter.frequency.value = 400;
     this.riserGain = ctx.createGain(); this.riserGain.gain.value = 0;
-    this.riser.connect(this.riserFilter); this.riserFilter.connect(this.riserGain); this.riserGain.connect(this.master);
+    this.riser.connect(this.riserFilter); this.riserFilter.connect(this.riserGain); this.riserGain.connect(this.engineBus);
     this.riser.start();
   }
 
@@ -95,7 +111,7 @@ export class Audio {
     if (freqEnd) f.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(f); f.connect(g); g.connect(this.master);
+    src.connect(f); f.connect(g); g.connect(this.sfxBus);
     src.start(t, Math.random() * 1.5); src.stop(t + dur + 0.05);
   }
 
@@ -106,7 +122,7 @@ export class Audio {
     if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + dur + 0.05);
+    o.connect(g); g.connect(this.sfxBus); o.start(t); o.stop(t + dur + 0.05);
   }
 
   /** Oscillator with a shaped envelope (attack, hold, exponential release) and an exponential pitch glide. */
@@ -128,7 +144,7 @@ export class Audio {
       if (filter.freqEnd) f.frequency.exponentialRampToValueAtTime(filter.freqEnd, t + (filter.dur || end - t));
       o.connect(f); out = f;
     }
-    out.connect(g); g.connect(this.master);
+    out.connect(g); g.connect(this.sfxBus);
     o.start(t); o.stop(end + 0.05);
   }
 
@@ -232,7 +248,7 @@ export class Audio {
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.2, t + 0.01);
     g.gain.setValueAtTime(0.2, t + dur * 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(f); f.connect(chop); chop.connect(g); g.connect(this.master);
+    src.connect(f); f.connect(chop); chop.connect(g); g.connect(this.sfxBus);
     src.start(t, Math.random()); src.stop(t + dur + 0.05); lfo.start(t); lfo.stop(t + dur + 0.05);
     this.voice({ type: 'square', f0: 150, f1: 110, glide: dur, attack: 0.004, hold: 0.02, release: 0.12, gain: 0.08, delay, filter: { type: 'lowpass', freq: 900 } });
   }

@@ -43,7 +43,7 @@ export class CameraRig {
     const cam = this.camera;
     const s = player.speedSys;
     const t = this.t;
-    const tr = Math.min(3, fx.shake);
+    const tr = Math.min(3, fx.shake * (fx.prefs?.shake ?? 1));
     const k = tr * tr * 0.5;
     // smooth pseudo-noise shake
     const sx = (Math.sin(t * 37.1) + Math.sin(t * 23.7 + 1.3) * 0.6) * 0.35 * k;
@@ -92,7 +92,7 @@ export class CameraRig {
     }
     // FOV follows the Mach number continuously (log scale), plus barrier charge
     const mach = Math.max(1, s.speed * MACH_FACTOR);
-    const targetFov = fovForMach(mach) + s.charge * FOV.charge + (player.braking ? FOV.brake : 0) + (this.mode === 'chase' ? FOV.chaseOffset : 0);
+    const targetFov = fovForMach(mach) + s.charge * FOV.charge + (player.braking ? FOV.brake : 0) + (this.mode === 'chase' ? FOV.chaseOffset : 0) + (FOV.userOffset || 0);
     this.fov += (targetFov - this.fov) * (1 - Math.exp(-4 * dt));
     cam.fov = Math.max(40, Math.min(125, this.fov + fx.fovPunch));
     cam.updateProjectionMatrix();

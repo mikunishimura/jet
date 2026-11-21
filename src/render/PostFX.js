@@ -20,6 +20,7 @@ const frag = /* glsl */`
   uniform vec4 uWaves[${MAX_WAVES}];   // xy center, z age (s), w strength (signed)
   uniform float uNegative;   // 0..1
   uniform float uGlitch;     // 0..1
+  uniform float uInvert;     // 1 = color inversions allowed (settings: flashes), 0 = never invert
   uniform float uRipple;     // sine wobble amplitude
   uniform float uAberration;
   uniform float uBlur;       // radial blur 0..1
@@ -112,9 +113,9 @@ const frag = /* glsl */`
     // negative color disturbance: full inversion + per-slice partial inversions
     float neg = uNegative;
     float bandNeg = step(0.7, hash(vec2(floor(vUv.y * 16.0), floor(uTime * 20.0)))) * uGlitch;
-    col = mix(col, 1.0 - col, clamp(neg + bandNeg * 0.9, 0.0, 1.0));
+    col = mix(col, 1.0 - col, clamp(neg + bandNeg * 0.9, 0.0, 1.0) * uInvert);
     // channel swap flicker during glitches
-    if (gOn > 0.5 && uGlitch > 0.3) col = col.brg;
+    if (gOn > 0.5 && uGlitch > 0.3 && uInvert > 0.5) col = col.brg;
 
     // flood toward paper-white before the cut; the jet and the line ahead stay clear
     col = mix(col, vec3(1.0), uFlood * smoothstep(0.08, 0.55, min(rc, rj)));
@@ -135,7 +136,7 @@ const frag = /* glsl */`
       vec2 g = c / vec2(1.6, 0.8) + 0.5;
       if (g.x > 0.0 && g.x < 1.0 && g.y > 0.0 && g.y < 1.0) inv += texture2D(tGhost, g).a * uGhost;
     }
-    col = mix(col, 1.0 - col, clamp(inv, 0.0, 1.0));
+    col = mix(col, 1.0 - col, clamp(inv, 0.0, 1.0) * uInvert);
     col = mix(col, vec3(1.0), uWhite);
 
     // damage: red pulse from edges
@@ -159,7 +160,7 @@ export class PostFX {
         uRes: { value: size.clone() },
         uTime: { value: 0 },
         uWaves: { value: this.waves },
-        uNegative: { value: 0 }, uGlitch: { value: 0 }, uRipple: { value: 0 }, uAberration: { value: 0 },
+        uNegative: { value: 0 }, uGlitch: { value: 0 }, uInvert: { value: 1 }, uRipple: { value: 0 }, uAberration: { value: 0 },
         uBlur: { value: 0 }, uHaze: { value: 0 }, uDamage: { value: 0 }, uVignette: { value: 0.35 },
         uDesat: { value: 0 }, uCone: { value: 0 },
         uCenter: { value: new THREE.Vector2(0.5, 0.5) }, uSwirl: { value: new THREE.Vector2() }, uFlood: { value: 0 }, uWhite: { value: 0 },

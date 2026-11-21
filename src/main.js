@@ -5,6 +5,7 @@ window.__jet = game;
 
 document.getElementById('start').addEventListener('click', () => game.start());
 document.getElementById('restart').addEventListener('click', () => game.start());
+document.querySelectorAll('.open-settings').forEach((b) => b.addEventListener('click', () => game.openSettings()));
 
 const best = game.best;
 if (best.time) {

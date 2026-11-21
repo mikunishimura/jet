@@ -12,6 +12,9 @@ export class FXDirector {
     this.damage = 0; this.desat = 0; this.shake = 0;
     this.fovPunch = 0; this.fovVel = 0;
     this.hitStop = 0; // real seconds of slow motion remaining
+    // user preferences (settings panel): intensity scales the screen effects,
+    // flashes=false removes color inversion and dims white flashes (photosensitivity)
+    this.prefs = { intensity: 1, flashes: true, shake: 1, blur: 1 };
     this.scheduled = [];
     this.flash = 0;
     // event timelines (seconds since the event, real time); Infinity = idle
@@ -119,17 +122,19 @@ export class FXDirector {
     const speed01 = s.speed / TIERS[TIERS.length - 1].speed;
     const u = this.post.u;
     u.uCenter.value.set(this.center[0], this.center[1]);
-    u.uNegative.value = Math.max(this.neg, bf.negative);
+    const P = this.prefs, I = P.intensity;
+    u.uInvert.value = P.flashes ? 1 : 0;
+    u.uNegative.value = P.flashes ? Math.max(this.neg, bf.negative) * I : 0;
     u.uSwirl.value.set(bf.swirl.radius, bf.swirl.intensity);
-    u.uFlood.value = bf.flood;
-    u.uWhite.value = bf.white;
+    u.uFlood.value = bf.flood * I;
+    u.uWhite.value = bf.white * (P.flashes ? 1 : 0.2) * I;
     u.uRing.value.set(gf.ring.radius, gf.ring.alpha);
     u.uBeam.value.set(gf.beam, gf.line);
     u.uGhost.value = Math.max(gf.ghost, bf.ghost);
-    u.uGlitch.value = this.glitch;
-    u.uRipple.value = this.ripple;
-    u.uAberration.value = this.ab;
-    u.uBlur.value = Math.pow(speed01, 1.3) * 0.95 + s.charge * 0.25;
+    u.uGlitch.value = this.glitch * I;
+    u.uRipple.value = this.ripple * I;
+    u.uAberration.value = this.ab * I;
+    u.uBlur.value = (Math.pow(speed01, 1.3) * 0.95 + s.charge * 0.25) * P.blur;
     u.uHaze.value = s.charge * (s.tier >= 1 ? 1 : 0);
     u.uDamage.value = Math.max(this.damage, s.lowHealthPulse);
     u.uDesat.value = this.desat;

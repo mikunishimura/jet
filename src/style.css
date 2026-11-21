@@ -62,3 +62,27 @@ button:hover { background: var(--ink); color: var(--paper); }
   .hud-bc { bottom: 90px; }
   #log { display: none; }
 }
+
+/* ---------- settings ---------- */
+#settings { z-index: 20; background: rgba(255, 255, 255, 0.35); }
+.term.wide { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; }
+button.ghost { border-color: transparent; color: var(--ink-2); margin-top: 6px; padding: 6px; }
+button.ghost:hover { background: transparent; color: var(--ink); border-color: var(--ink); }
+.ssec { padding: 8px 0 6px; border-top: 1px dashed var(--ink-2); }
+.ssec:first-child { border-top: none; padding-top: 0; }
+.shead { color: var(--ink-2); margin-bottom: 4px; }
+.srow { display: grid; grid-template-columns: 1.1fr 1.3fr 64px; align-items: center; gap: 10px; min-height: 28px; }
+.slabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sctl { display: flex; gap: 6px; align-items: center; }
+.sval { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+button.inline { width: auto; margin: 0; padding: 2px 8px; font-size: 12px; font-weight: 500; border-color: var(--line); border-radius: 6px; }
+button.inline.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.sfoot { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; border-top: 1px dashed var(--ink-2); padding-top: 4px; }
+.sfoot button.ghost { width: auto; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 1px; background: var(--ink); }
+input[type=range]::-moz-range-track { height: 1px; background: var(--ink); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -6px; border-radius: 3px; background: var(--ink); border: none; }
+input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 3px; background: var(--ink); border: none; }
+input[type=range]:disabled { opacity: 0.3; cursor: default; }
+@media (max-width: 760px) { .srow { grid-template-columns: 1fr 1fr 52px; } }

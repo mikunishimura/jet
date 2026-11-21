@@ -25,6 +25,7 @@ URL flags: `?autopilot` (the bot flies), `?god` (enemy fire does no damage). Con
 | **RMB** / **K** | salvo of 4 homing missiles on the locks nearest the crosshair; with no lock they fly straight down the crosshair (8 max, they reload) |
 | **C** | chase camera (default: far behind, horizon never tilts) ↔ cockpit POV (banks with the stick). Remembered |
 | **M** | mute |
+| **O** / **Esc** | settings. Esc mid-flight (it releases the mouse) pauses the game with the settings window; Esc or `[ resume ]` continues |
 
 ## Mechanics (all numbers in `src/config.js`)
 
@@ -51,6 +52,17 @@ The first Mach change comes about 0.5 s after launch. `tierLevel()` maps any tie
 - **Near misses**: pass an obstacle within ~1.8 km of its surface (plus 50 ms of travel at your speed) without touching it and the barrier charges 12–35%, more the closer you were, +100–400 points. Threading a gap in a wall counts once per side. The path spawns about half its obstacles as near misses, so dodging late is rewarded.
 - **Survey gates** (orange-striped arches): flying through adds 35% barrier charge and +500 points.
 - Score = 0.1 point per meter from spawn + 5 per second + kills (bonus for kills at high tier) + gates + near misses. Best time, range and score are saved in localStorage.
+
+## Settings
+
+A terminal-style settings window: **O**, the `[ settings ]` buttons on the menu and death screens, or **Esc** mid-flight, which doubles as the pause screen. Changes apply live and persist in localStorage (`src/core/Settings.js`, values sanitized and clamped).
+
+- **Audio:** mute, master volume, engine & wind bus, effects bus.
+- **Controls:** mouse sensitivity, invert Y, auto-recenter on/off, recenter delay.
+- **View:** chase or cockpit camera, field-of-view offset (±15°), render scale (50–150 %, for performance), show FPS.
+- **Effects:** *flashes & inversion* (turn off for a photosensitivity-safe mode: no color inversion anywhere, white flashes dimmed), screen-effect intensity, camera shake, speed blur.
+
+Adding a setting takes a default in `DEFAULTS` plus one row in `SCHEMA` (`src/ui/SettingsPanel.js`), applied in `Game.applySettings()`.
 
 ## Look
 
@@ -82,6 +94,8 @@ src/
     Game.js              loop, events → FX/audio/HUD, director, floating origin, scoring
     Autopilot.js         attract mode + automated playtests
     Aim.js               mouse look/aim offset (pure; never touches the trajectory)
+  core/Settings.js       player settings: defaults, sanitizing, persistence, change events
+  ui/SettingsPanel.js    terminal settings window / pause screen (schema-driven)
   world/
     World.js             chunk streaming (forward cone, 4 ms/frame budget), collision + ray queries
     PathHazards.js       paced obstacle events down the player's path (pattern table)

@@ -1,6 +1,10 @@
 // Orchestrates systems, the frame loop, game state, director, scoring.
 import * as THREE from 'three';
-import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS } from '../config.js';
+import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV } from '../config.js';
+import { Settings } from '../core/Settings.js';
+import { SettingsPanel } from '../ui/SettingsPanel.js';
+
+const AIM_BASE_SENSITIVITY = AIM.sensitivity; // settings scale this
 import { isMilestone } from '../render/Juice.js';
 import { Input } from '../core/input.js';
 import { World } from '../world/World.js';
@@ -58,7 +62,6 @@ export class Game {
     this.rig = new CameraRig(this.camera);
     this.cockpit = new Cockpit(this.camera);
     this.jet = new JetModel(this.scene);
-    this.rig.setMode(this.loadCamMode());
     this.speedLines = new SpeedLines(this.camera);
     // one glyph system (hard shapes, stepped fade) + vector shells/rings; `add` kept as an alias
     const glyphs = new Particles(this.scene, 7000);
@@ -72,6 +75,16 @@ export class Game {
     this.enemies = new EnemyManager(this);
     this.pickups = new Pickups(this);
     this.hud = new HUD(this);
+    // player settings: applied live, persisted; the panel doubles as the pause screen
+    this.settings = new Settings();
+    this.paused = false;
+    this.settingsPanel = new SettingsPanel(this.settings, { onClose: () => this.closeSettings() });
+    this.settings.onChange(() => this.applySettings());
+    this.applySettings();
+    // Esc releases the pointer lock mid-flight -> pause with the settings window
+    document.addEventListener('pointerlockchange', () => {
+      if (!document.pointerLockElement && this.state === 'playing' && this.player.alive && !this.settingsPanel.isOpen) this.openSettings();
+    });
     this.autopilot = new Autopilot(this);
 
     this.best = this.loadBest();
@@ -114,13 +127,42 @@ export class Game {
     void m; void e; void pk;
   }
 
-  loadCamMode() { try { return localStorage.getItem('jetlab.cam') === 'cockpit' ? 'cockpit' : 'chase'; } catch { return 'chase'; } }
   toggleCamera() {
     const mode = this.rig.mode === 'chase' ? 'cockpit' : 'chase';
-    this.rig.setMode(mode);
-    try { localStorage.setItem('jetlab.cam', mode); } catch { /* private mode */ }
+    this.settings.set('view.camera', mode); // applySettings switches the rig
     if (this.state === 'playing') this.hud.toast(mode === 'chase' ? 'CHASE CAMERA' : 'COCKPIT CAMERA');
   }
+
+  /** push every setting into the systems that use it (cheap; runs on each change) */
+  applySettings() {
+    const v = this.settings.values;
+    this.audio.setLevels(v.audio);
+    AIM.sensitivity = AIM_BASE_SENSITIVITY * v.controls.sensitivity;
+    AIM.invertY = v.controls.invertY;
+    AIM.recenterDelay = v.controls.autoRecenter ? v.controls.recenterDelay : Infinity;
+    if (this.rig.mode !== v.view.camera) this.rig.setMode(v.view.camera);
+    FOV.userOffset = v.view.fovOffset;
+    const pr = Math.min(devicePixelRatio || 1, 1.5) * v.view.renderScale;
+    if (Math.abs(this.renderer.getPixelRatio() - pr) > 1e-3) { this.renderer.setPixelRatio(pr); this.resize(); }
+    Object.assign(this.fx.prefs, v.fx);
+    this.hud.showFps = v.view.showFps;
+  }
+
+  openSettings() {
+    if (this.settingsPanel.isOpen) return;
+    this.paused = this.state === 'playing' && this.player.alive;
+    this.settingsPanel.open(this.paused);
+    this.input.releaseLock();
+  }
+  closeSettings() {
+    this.settingsPanel.close();
+    if (this.paused) {
+      this.paused = false;
+      this.last = performance.now();
+      this.input.requestLock(this.renderer.domElement); // the click / key that closed it is a user gesture
+    }
+  }
+  toggleSettings() { if (this.settingsPanel.isOpen) this.closeSettings(); else this.openSettings(); }
 
   loadBest() { try { return JSON.parse(localStorage.getItem(BEST_KEY)) || {}; } catch { return {}; } }
   saveBest() { try { localStorage.setItem(BEST_KEY, JSON.stringify(this.best)); } catch { /* private mode */ } }
@@ -381,6 +423,14 @@ export class Game {
     const now = performance.now();
     const real = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
+    if (this.paused) {
+      // frozen frame behind the settings window: no simulation, just redraw
+      if (this.input.wasPressed('KeyO')) this.toggleSettings();
+      this.renderer.info.reset();
+      this.post.render(this.scene, this.camera, this.time);
+      this.input.endFrame();
+      return;
+    }
     this.perfTick(real);
     const dt = real * this.fx.timeScale;
     this.time += dt;
@@ -388,10 +438,12 @@ export class Game {
 
     // input & state transitions
     const inp = this.input;
-    if (this.state === 'menu' && (inp.wasPressed('KeyW') || inp.wasPressed('ArrowUp') || inp.wasPressed('Space'))) this.start();
-    else if (this.state === 'dead' && (inp.wasPressed('KeyR') || inp.wasPressed('Space'))) this.start();
+    const ui = this.settingsPanel.isOpen;
+    if (inp.wasPressed('KeyO')) this.toggleSettings();
+    else if (!ui && this.state === 'menu' && (inp.wasPressed('KeyW') || inp.wasPressed('ArrowUp') || inp.wasPressed('Space'))) this.start();
+    else if (!ui && this.state === 'dead' && (inp.wasPressed('KeyR') || inp.wasPressed('Space'))) this.start();
     if (inp.wasPressed('KeyC')) this.toggleCamera();
-    if (inp.wasPressed('KeyM')) { this.audio.init(); this.audio.master && (this.audio.master.gain.value = this.audio.master.gain.value > 0 ? 0 : 0.55); }
+    if (inp.wasPressed('KeyM')) { this.audio.init(); this.settings.set('audio.muted', !this.settings.get('audio.muted')); }
 
     const ctl = (this.attract || this.useAutopilot) ? this.autopilot.control(dt) : inp.state();
     const p = this.player;

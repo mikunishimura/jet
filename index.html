@@ -40,9 +40,10 @@
 <b>c</b>            chase / cockpit camera</pre>
         <pre class="notes"># hull caps your top tier, so collect repair beacons
 # head-on hits cost a tier; grazes just nudge you
-# space / shift: climb anywhere between the floor and the 1500 m ceiling
+# space / shift: climb from the floor up past the clouds to the 24 km ceiling
 # fly low (&lt;60 m) for ground effect; above 1000 m the radar finds you</pre>
         <button id="start">[ press w to launch ]</button>
+        <button class="ghost open-settings">[ settings · o ]</button>
         <div class="best" id="menu-best"></div>
       </div>
     </div>
@@ -62,9 +63,11 @@ top tier   <span id="d-tier"></span>
 score      <b id="d-score"></b></pre>
         <div id="d-records"></div>
         <button id="restart">[ r · fly again ]</button>
+        <button class="ghost open-settings">[ settings · o ]</button>
       </div>
     </div>
   </div>
+  <div id="settings" class="screen hidden"></div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
