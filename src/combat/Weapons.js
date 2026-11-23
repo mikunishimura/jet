@@ -77,6 +77,17 @@ export function aimDamage(err, cone = AIM.autoCone, q = WEAPONS.aimQuality) {
   return q.full + (q.edge - q.full) * t;
 }
 
+/**
+ * Spread fire: every enemy in the aimed area the gun can reach, best aimed
+ * first, minus the ones a kill missile is already taking care of. Pure.
+ */
+export function gunTargets(enemies, doomed, cone = AIM.assistCone, range = WEAPONS.minigun.range * 1.05) {
+  return enemies.filter((e) => e.alive && e.aimErr < cone && e.dist < range && !doomed.has(e)).sort((a, b) => a.aimErr - b.aimErr);
+}
+
+/** fire-rate multiplier for n targets in the aimed area */
+export const gunRate = (n, W = WEAPONS.minigun) => 1 + W.multiRate * (Math.min(Math.max(n, 1), W.multiMax) - 1);
+
 /** lock ring fill as drawn: slow at first, rushing at the end (display only) */
 export const lockDisplay = (p, k = WEAPONS.lock.displayK) => (Math.exp(k * Math.max(0, Math.min(1, p))) - 1) / (Math.exp(k) - 1);
 
@@ -98,6 +109,8 @@ export class Weapons {
     this.detected = [];    // every tracked enemy
     this.primary = null;
     this.assisted = false;  // gun is leading the primary (crosshair close enough)
+    this.targets = [];      // spread fire: everything in the aimed area the gun is working on
+    this.rr = 0;            // round-robin over `targets`
     this.firing = false;
     this.muzzleSide = 0;
     this.holding = false;   // trigger held (lock-on in progress)
@@ -150,6 +163,7 @@ export class Weapons {
       else if (this.primary && this.lockState.get(this.primary)?.locked) this.primary = this.locks.find((e) => !this.lockState.get(e)?.locked) || this.primary;
     }
     this.assisted = !!this.primary && this.primary.aimErr < AIM.assistCone;
+    this.targets = gunTargets(this.detected, this.doomed);
   }
 
   /** fighting right now: the gun is firing, a lock is building, or missiles are leaving */
@@ -188,7 +202,7 @@ export class Weapons {
     this.gunCooldown -= dt;
     // auto: fire at whatever the auto-aim holds in range, in bursts that rest before overheating
     const auto = AIM.autoFire;
-    const inRange = this.assisted && this.primary.dist < W.range * 1.05;
+    const inRange = this.targets.length > 0;
     if (this.heat > 0.88) this.rest = true; else if (this.heat < 0.3) this.rest = false;
     const autoGun = auto && inRange && !this.rest;
     this.firing = (ctl.gun || autoGun) && this.overheated <= 0;
@@ -196,10 +210,11 @@ export class Weapons {
     this.sinceFire = this.firing ? 0 : (this.sinceFire || 0) + dt;
     if (this.sinceFire > W.coolDelay) this.heat = Math.max(0, this.heat - W.cool * dt * (this.overheated > 0 ? 1.6 : 1));
     if (this.firing) {
+      const k = gunRate(this.targets.length);   // more targets in the aimed area: the barrels spin faster
       while (this.gunCooldown <= 0) {
-        this.gunCooldown += 1 / W.rate;
+        this.gunCooldown += 1 / (W.rate * k);
         this.fireBullet();
-        this.heat += W.heatPerShot;
+        this.heat += W.heatPerShot / k;
         if (this.heat >= 1) { this.heat = 1; this.overheated = W.overheatLock; g.audio.overheat(); g.hud.toast('GUN OVERHEAT', 'warn'); break; }
       }
     } else this.gunCooldown = Math.max(this.gunCooldown, 0);
@@ -283,7 +298,9 @@ export class Weapons {
     const g = this.game, p = g.player, W = WEAPONS.minigun;
     this.muzzleSide = this.muzzleSide === 1 ? -1 : 1;
     const origin = this.muzzle(this.muzzleSide);
-    const t = this.assisted ? this.primary : null;
+    // spread fire: rounds take turns over every enemy in the aimed area
+    const n = this.targets.length;
+    const t = n ? this.targets[this.rr++ % n] : null;
     // aim quality: the closer the crosshair is to the target, the harder each round hits
     const mult = t ? aimDamage(t.aimErr, AIM.assistCone) : 1;
     if (t) {
@@ -309,6 +326,7 @@ export class Weapons {
     const vel = _dir.clone().multiplyScalar(W.speed).add(p.vel);
     const b = g.projectiles.bullet('player', origin, vel, W.damage * mult, 0x2a2d31, W.range / W.speed);
     b.crit = mult > WEAPONS.aimQuality.full;
+    b.splash = W.splash; b.splashShare = W.splashShare;
     g.audio.gunshot();
     // muzzle flash: bigger now that every round counts
     g.particles.normal.emit({ x: origin.x, y: origin.y, z: origin.z, rel: true, life: 0.06, size: 3.4, color: 0x15171a, shape: 1 });

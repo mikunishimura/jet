@@ -304,7 +304,13 @@ export const AIM = {
 
 export const WEAPONS = {
   // heavier, slower rounds (was 26/s × 6 dmg); the barrels cool and unjam fast
-  minigun: { rate: 11, speed: 6500, damage: 14, spread: 0.004, heatPerShot: 0.011, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 1900 },
+  minigun: { rate: 11, speed: 6500, damage: 14, spread: 0.004, heatPerShot: 0.011, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 1900,
+    // spread fire: every enemy in the aimed area (gun cone, in range) gets rounds in turn,
+    // except the ones with a kill missile on the way. More targets, faster fire (heat per round
+    // shrinks to match): x(1 + multiRate * (n - 1)), n capped at multiMax.
+    multiRate: 0.35, multiMax: 4,
+    // flak: a round bursts on hit and also damages enemies within `splash` m (share of its damage)
+    splash: 45, splashShare: 0.4 },
   missiles: { salvo: 4, stagger: 0.07, max: 8, reload: 1.4, speed: 750, accel: 900, turnRate: 4.2, damage: 70, splash: 70, life: 6 },
   // a hard lock is a kill: one hypersonic missile per locked target, out in a quick ripple
   lockedMissile: { speed: 5200, accel: 60000, turnRate: 40, stagger: 0.035, prox: 30, life: 3 },

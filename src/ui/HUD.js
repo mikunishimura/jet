@@ -287,8 +287,18 @@ export class HUD {
     this.drawThreats(ctx, W, H, dpr, t);
     this.drawBreakers(ctx, cam, W, H, dpr, focal, t);
 
-    // --- detection: rounded red boxes
+    // --- spread fire: a hairline from the crosshair to every enemy the gun is working on
     const w = g.weapons;
+    if (w.firing && w.targets.length > 1 && !ap.behind) {
+      ctx.globalAlpha = 0.35;
+      for (const e of w.targets) {
+        const pr = this.project(e.pos, cam);
+        if (pr.behind) continue;
+        this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.moveTo(ap.x, ap.y); ctx.lineTo(pr.x, pr.y); });
+      }
+      ctx.globalAlpha = 1;
+    }
+    // --- detection: rounded red boxes
     for (const e of w.detected) {
       const pr = this.project(e.pos, cam);
       if (pr.behind || pr.x < 0 || pr.x > W || pr.y < 0 || pr.y > H) { this.edgeChevron(ctx, e.pos, cam, W, H); continue; }

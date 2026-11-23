@@ -227,3 +227,19 @@ test('analog sticks (touch): half deflection settles at half bank, keys still go
   for (let t = 0; t < 1; t += DT) v = Player.stick(v, -0.3, DT, 0.26, 0.1);
   assert.ok(Math.abs(v + 0.3) < 1e-9, 'reverses onto the new deflection');
 });
+
+test('spread fire: every enemy in the aimed area, best aimed first, minus the locked-in ones', async () => {
+  const { gunTargets } = await import('../src/combat/Weapons.js');
+  const mk = (aimErr, dist = 800, alive = true) => ({ aimErr: aimErr * DEG, dist, alive });
+  const a = mk(1), b = mk(12), c = mk(6), far = mk(2, 5000), out = mk(30), doomedOne = mk(0.5), dead = mk(3, 800, false);
+  const t = gunTargets([a, b, c, far, out, doomedOne, dead], new Set([doomedOne]));
+  assert.deepEqual(t, [a, c, b]);
+});
+
+test('spread fire: more targets, faster fire, capped', async () => {
+  const { gunRate } = await import('../src/combat/Weapons.js');
+  const W = WEAPONS.minigun;
+  assert.equal(gunRate(0), 1); assert.equal(gunRate(1), 1);
+  assert.ok(gunRate(3) > gunRate(2) && gunRate(2) > 1);
+  assert.equal(gunRate(10), gunRate(W.multiMax));
+});

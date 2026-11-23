@@ -132,10 +132,19 @@ export class Projectiles {
       const prev = _a.copy(b.p).addScaledVector(b.rv, -dt); // sweep in the moving frame
       let dead = b.life <= 0;
       if (!dead && b.owner === 'player') {
+        const doomed = g.weapons?.doomed;
         for (const e of enemies) {
-          if (!e.alive) continue;
+          if (!e.alive || doomed?.has(e)) continue;   // locked-in: the kill missile has it, rounds fly on
           if (segSphere(prev, b.p, e.pos, e.radius + 2)) {
             e.damage(b.damage, b.crit ? 'crit' : 'gun', b.p);
+            // flak: the burst also catches anything packed close (not targets a kill missile has)
+            if (b.splash) {
+              for (const o of enemies) {
+                if (o === e || !o.alive || doomed?.has(o)) continue;
+                if (o.pos.distanceTo(b.p) < b.splash + o.radius) o.damage(b.damage * b.splashShare, 'gun', o.pos);
+              }
+              if (Math.random() < 0.35) g.particles.vector.ring(b.p.x, b.p.y, b.p.z, 2, b.splash, 0.16, 0x15171a);
+            }
             dead = true; break;
           }
         }
