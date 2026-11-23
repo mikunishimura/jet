@@ -277,7 +277,9 @@ test('the gun hits where you aim, wherever the nose points (real frame order, hy
     return hits / Math.max(1, fired);
   };
   const base2 = { left: false, right: false, throttle: true, throttleTap: false, brake: false, up: false, down: false };
-  const ahead = hitRate(0), away = hitRate(60);
-  assert.ok(ahead > 0.9, `nose on target: ${(ahead * 100).toFixed(0)}% hit`);
-  assert.ok(away > 0.9, `nose 60 deg away: ${(away * 100).toFixed(0)}% hit`);
+  // straight ahead, off to the side, square on your left / right, behind your shoulder
+  for (const deg of [0, 60, 90, -90, 135]) {
+    const r = hitRate(deg);
+    assert.ok(r > 0.9, `enemy ${deg} deg off the nose: ${(r * 100).toFixed(0)}% hit`);
+  }
 });
