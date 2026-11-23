@@ -1,11 +1,15 @@
 // Player armament + target acquisition ("detection system").
 //
-// AUTO-FIRE (AIM.autoFire, default): you fly and look, the jet fights.
-//   * the minigun opens up on any enemy within AIM.autoCone of the crosshair
-//     and in gun range, leading its motion, in bursts that never overheat
-//   * keep looking at an enemy (within lock.autoMargin) for lock.time and the
-//     lock ring fills; on lock a hypersonic kill missile leaves at once
-//   * flares go out on their own when a missile is about to land (Game)
+// AUTO-FIRE (AIM.autoFire, default): you fly and aim, the jet pulls the trigger.
+//   * the minigun opens up on any enemy within AIM.autoCone (20°) of the
+//     crosshair and in gun range, leading its motion, in bursts that never
+//     overheat. How hard it hits is up to your aim: on center is a critical
+//     hit (2×), the edge of the cone does 0.3× (aimDamage, WEAPONS.aimQuality)
+//   * keep an enemy inside the lock ring (lock.autoMargin) for lock.time AND
+//     keep it within lock.noseCone of the jet's nose, and the lock lands. A
+//     precise lock (mean error under lock.precise) sends a kill missile; a
+//     sloppy one sends a missile the enemy may dodge (WEAPONS.evade)
+//   * flares are manual (F): defence is flying (break turns, Countermeasures)
 // MANUAL (setting off): LMB / J hold = gun + lock-on, release = kill missiles;
 //   RMB / K = lock-on without the gun (released empty: a dumbfire pair).
 // LMB / J also forces the gun in auto mode (shoot at nothing in particular).
@@ -48,7 +52,11 @@ export function stepLocks(locks, cands, dt, capacity, cfg = WEAPONS.lock) {
     if (e === tracked) {
       s.out = 0;
       s.p = Math.min(1, s.p + dt / cfg.time);
-      if (s.p >= 1) { s.locked = true; events.push({ type: 'locked', e, p: 1 }); }
+      // tracking quality: mean crosshair error while this lock built
+      const err = cands.find((c) => c.e === e)?.err ?? 0;
+      s.errSum = (s.errSum || 0) + err * dt; s.tTrack = (s.tTrack || 0) + dt;
+      s.meanErr = s.errSum / s.tTrack;
+      if (s.p >= 1) { s.locked = true; events.push({ type: 'locked', e, p: 1, meanErr: s.meanErr }); }
       else events.push({ type: 'tracking', e, p: s.p });
     } else {
       s.out += dt;
@@ -57,6 +65,17 @@ export function stepLocks(locks, cands, dt, capacity, cfg = WEAPONS.lock) {
     }
   }
   return events;
+}
+
+/**
+ * Gun damage multiplier for a crosshair error `err` (rad, beyond the target's
+ * own angular size): critMult on center, then from `full` down to `edge` at
+ * the cone. Pure (unit-tested).
+ */
+export function aimDamage(err, cone = AIM.autoCone, q = WEAPONS.aimQuality) {
+  if (err <= q.crit) return q.critMult;
+  const t = Math.min(1, (err - q.crit) / Math.max(1e-6, cone - q.crit));
+  return q.full + (q.edge - q.full) * t;
 }
 
 /** lock ring fill as drawn: slow at first, rushing at the end (display only) */
@@ -116,6 +135,9 @@ export class Weapons {
       const ang = Math.acos(Math.max(-1, Math.min(1, _v.dot(f) / dv)));
       e.lockAngle = ang; e.dist = d;
       e.angRadius = Math.atan((e.radius * 1.2) / dv);
+      e.aimErr = Math.max(0, ang - e.angRadius);                       // aim quality: error beyond its own size
+      _a.subVectors(e.pos, p.pos);
+      e.noseAngle = Math.acos(Math.max(-1, Math.min(1, _a.dot(p.forward) / (d || 1)))); // missile locks need the nose
       if (ang < WEAPONS.lockCone && d < WEAPONS.lockRange) this.locks.push(e);
     }
     // a target with a kill missile on the way is as good as dead: work on the others first
@@ -130,7 +152,7 @@ export class Weapons {
       if (tr && tr.alive && this.locks.includes(tr)) this.primary = tr;
       else if (this.primary && this.lockState.get(this.primary)?.locked) this.primary = this.locks.find((e) => !this.lockState.get(e)?.locked) || this.primary;
     }
-    this.assisted = !!this.primary && this.primary.lockAngle < AIM.assistCone;
+    this.assisted = !!this.primary && this.primary.aimErr < AIM.assistCone;
   }
 
   /** fighting right now: the gun is firing, a lock is building, or missiles are leaving */
@@ -220,7 +242,8 @@ export class Weapons {
     const cands = [];
     for (const e of this.detected) {
       if (e.dist > WEAPONS.lockRange || this.doomed.has(e)) continue;
-      cands.push({ e, err: Math.max(0, e.lockAngle - e.angRadius) });
+      if (e.noseAngle > L.noseCone) continue;   // point the jet roughly at it: locks need commitment
+      cands.push({ e, err: e.aimErr });
     }
     const cfg = AIM.autoAim ? { ...L, margin: L.autoMargin } : L;
     const events = stepLocks(this.lockState, cands, dt, this.missiles, cfg);
@@ -228,13 +251,14 @@ export class Weapons {
     for (const ev of events) {
       if (ev.type === 'locked') {
         g.audio.lockOn();
+        const kill = ev.meanErr <= L.precise;
         if (AIM.autoFire && this.missiles > 0) {
-          // auto: the kill missile leaves the moment the lock lands
-          this.lockState.delete(ev.e); this.doomed.add(ev.e);
-          this.salvoQueue.push({ target: ev.e, locked: true }); this.missiles--;
+          // auto: the missile leaves the moment the lock lands; a precise lock is a kill
+          this.lockState.delete(ev.e); if (kill) this.doomed.add(ev.e);
+          this.salvoQueue.push({ target: ev.e, locked: true, kill }); this.missiles--;
           if (this.salvoQueue.length === 1) this.salvoTimer = 0;
-          g.hud.toast(`LOCK ${ev.e.name} · KILL MISSILE`, 'good');
-        } else g.hud.toast(`LOCK ${ev.e.name} · ${this.lockedTargets().length}`, 'good');
+          g.hud.toast(kill ? `PRECISE LOCK ${ev.e.name} · KILL MISSILE` : `LOOSE LOCK ${ev.e.name} · IT MAY DODGE`, kill ? 'good' : 'warn');
+        } else g.hud.toast(`${kill ? 'PRECISE' : 'LOOSE'} LOCK ${ev.e.name} · ${this.lockedTargets().length}`, kill ? 'good' : 'warn');
       }
       else if (this.tickT <= 0) { this.tickT = 0.16 - 0.1 * ev.p; g.audio.lockTick(lockDisplay(ev.p)); }
     }
@@ -244,12 +268,13 @@ export class Weapons {
   release() {
     const g = this.game, M = WEAPONS.missiles;
     const targets = this.lockedTargets();
+    this.lockMeanErr = new Map(targets.map((e) => [e, this.lockState.get(e)?.meanErr ?? 0]));
     this.lockState.clear(); this.lockState.tracked = null;
     if (!targets.length && !this.missileKey) return; // a plain gun burst: nothing else to do
     if (this.missiles <= 0) { g.audio.click(); return; }
     if (targets.length) {
       // one kill missile per lock (locks never exceed the missiles you had)
-      for (const e of targets) if (this.missiles > 0) { this.salvoQueue.push({ target: e, locked: true }); this.missiles--; }
+      for (const e of targets) if (this.missiles > 0) { this.salvoQueue.push({ target: e, locked: true, kill: (this.lockMeanErr.get(e) ?? 0) <= WEAPONS.lock.precise }); this.missiles--; }
       this.salvoTimer = 0;
     } else {
       const n = Math.min(WEAPONS.lock.dumbfire, this.missiles);
@@ -263,6 +288,8 @@ export class Weapons {
     this.muzzleSide = this.muzzleSide === 1 ? -1 : 1;
     const origin = this.muzzle(this.muzzleSide);
     const t = this.assisted ? this.primary : null;
+    // aim quality: the closer the crosshair is to the target, the harder each round hits
+    const mult = t ? aimDamage(t.aimErr, AIM.assistCone) : 1;
     if (t) {
       // solve intercept: |T + Vt*τ - O - Vp*τ| = s*τ in the player's frame
       const rel = _v.subVectors(t.pos, origin);
@@ -284,7 +311,8 @@ export class Weapons {
     _dir.x += (Math.random() - 0.5) * W.spread * 2; _dir.y += (Math.random() - 0.5) * W.spread * 2; _dir.z += (Math.random() - 0.5) * W.spread * 2;
     _dir.normalize();
     const vel = _dir.clone().multiplyScalar(W.speed).add(p.vel);
-    g.projectiles.bullet('player', origin, vel, W.damage, 0x2a2d31, W.range / W.speed);
+    const b = g.projectiles.bullet('player', origin, vel, W.damage * mult, 0x2a2d31, W.range / W.speed);
+    b.crit = mult > WEAPONS.aimQuality.full;
     g.audio.gunshot();
     // muzzle flash: bigger now that every round counts
     g.particles.normal.emit({ x: origin.x, y: origin.y, z: origin.z, rel: true, life: 0.06, size: 3.4, color: 0x15171a, shape: 1 });
@@ -296,12 +324,14 @@ export class Weapons {
     this.muzzleSide = this.muzzleSide === 1 ? -1 : 1;
     const origin = this.muzzle(this.muzzleSide, 'rail');
     if (shot?.locked && target?.alive) {
-      // kill missile: straight at the target at hypersonic speed, lethal on arrival
-      const K = WEAPONS.lockedMissile;
+      // locked: straight at the target at hypersonic speed. A precise lock is a
+      // kill missile (lethal on arrival); a loose one does missile damage and
+      // the target may jink out of its way at the last moment (WEAPONS.evade)
+      const K = WEAPONS.lockedMissile, kill = shot.kill !== false;
       const vel = _v.subVectors(target.pos, origin).normalize().multiplyScalar(K.speed * 0.5).add(p.vel);
       g.projectiles.missile('player', origin, vel, target, {
         relSpeed: K.speed, accel: K.accel, turnRate: K.turnRate, damage: M.damage, splash: M.splash,
-        prox: K.prox, life: K.life, armDelay: 0, kill: true,
+        prox: K.prox, life: K.life, armDelay: 0, kill, evade: kill ? 0 : WEAPONS.evade[target.name] ?? 0.5,
       });
       g.audio.missileLaunch(true);
       return;

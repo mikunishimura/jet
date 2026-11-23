@@ -105,6 +105,7 @@ body.touch, body.touch canvas { touch-action: none; -webkit-touch-callout: none;
 #touch .tbtn { position: absolute; width: auto; margin: 0; padding: 8px 14px; font-size: 12px; background: rgba(255, 255, 255, 0.75); }
 #touch .tbtn.brake { right: 14px; top: 56px; }
 #touch .tbtn.brake.on { background: var(--ink); color: var(--paper); }
+#touch .tbtn.flares { right: 14px; top: 98px; }
 #touch .tbtn.pause { right: 14px; top: 14px; padding: 6px 12px; }
 #hud.orbit ~ #touch .stick-base { border-color: rgba(255, 255, 255, 0.45); }
 body.touch .keys { display: none; }

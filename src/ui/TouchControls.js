@@ -4,7 +4,7 @@
 //                Throttle is automatic: fly straight and the barrier charges.
 //   right stick  look + aim (the mouse): a rate stick, the farther the faster.
 //                Shooting is automatic (auto-fire), so aiming is all you do.
-//   brake        hold: S.     ||  pause / settings.
+//   brake        hold: S.     flares: F (manual, 2 charges).     ||  pause / settings.
 // Enabled on coarse-pointer (touch-first) devices, or with ?touch in the URL.
 // Input.state() reads `axes()`; Game calls update(dt) once per frame.
 
@@ -72,7 +72,7 @@ export class TouchControls {
     const root = this.root = document.createElement('div');
     root.id = 'touch'; root.className = 'hidden';
     root.innerHTML = `<div class="zone left"></div><div class="zone right"></div>
-      <button class="tbtn brake">brake</button><button class="tbtn pause">||</button>`;
+      <button class="tbtn brake">brake</button><button class="tbtn flares">flares</button><button class="tbtn pause">||</button>`;
     document.body.appendChild(root);
     this.left = new Stick(root.querySelector('.zone.left'), 'left');
     this.right = new Stick(root.querySelector('.zone.right'), 'right');
@@ -80,6 +80,7 @@ export class TouchControls {
     brake.addEventListener('pointerdown', (e) => { e.preventDefault(); this.brake = true; brake.classList.add('on'); });
     for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) brake.addEventListener(ev, () => { this.brake = false; brake.classList.remove('on'); });
     root.querySelector('.pause').addEventListener('click', () => onPause?.());
+    root.querySelector('.flares').addEventListener('pointerdown', (e) => { e.preventDefault(); this.flareTap = true; });
     // the first touch on the left stick launches (a W tap)
     this.left.zone.addEventListener('pointerdown', () => { this.tap = true; });
   }
@@ -97,12 +98,14 @@ export class TouchControls {
   /** controller fields merged into Input.state() */
   axes() {
     const tap = this.tap; this.tap = false;
+    const flares = !!this.flareTap; this.flareTap = false;
     return {
       steerAxis: shape(this.left.x),
       pitchAxis: -shape(this.left.y),
       throttle: true,          // fly straight: the barrier charges by itself
       throttleTap: tap,
       brake: this.brake,
+      flares,
     };
   }
 }

@@ -262,8 +262,7 @@ export const AIM = {
   assistCone: 14 * DEG,     // minigun leads a target only this close to the crosshair (set from autoCone / manualCone)
   autoAim: true,            // settings: controls.autoAim
   autoFire: true,           // settings: controls.autoFire. Gun, lock-on missiles and flares fire by themselves
-  magnet: 3.2,              // auto-fire: 1/s the crosshair eases onto the enemy it is already on (follows its motion)
-  autoCone: 34 * DEG,       // auto-aim: the gun finds enemies this far from the crosshair
+  autoCone: 20 * DEG,       // auto-fire: the gun opens up on enemies this far from the crosshair (tracking them is your job)
   manualCone: 14 * DEG,     // auto-aim off: classic assist
 };
 
@@ -273,13 +272,24 @@ export const WEAPONS = {
   missiles: { salvo: 4, stagger: 0.07, max: 8, reload: 1.4, speed: 750, accel: 900, turnRate: 4.2, damage: 70, splash: 70, life: 6 },
   // a hard lock is a kill: one hypersonic missile per locked target, out in a quick ripple
   lockedMissile: { speed: 5200, accel: 60000, turnRate: 40, stagger: 0.035, prox: 30, life: 3 },
+  // enemies on station sidestep at random moments, so the crosshair never just
+  // sits on them: tracking is the aim skill. Offsets (m) on top of each
+  // enemy's weave, re-rolled every `every` seconds; scaled up with difficulty.
+  jink: { every: [0.7, 1.7], side: 240, up: 70, difficulty: [0.7, 1.15] },
+  // loose lock: chance the target jinks out of the missile's way at the last moment
+  evade: { DRONE: 0.25, UFO: 0.5, FIGHTER: 0.75 },
   lockCone: 42 * DEG,      // detection: red boxes, gun aim-assist candidates
   lockRange: 2400,
+  // aim quality: gun damage by crosshair error (beyond the target's own size).
+  // On center is a critical hit; it falls off to `edge` at the gun cone.
+  aimQuality: { crit: 2 * DEG, critMult: 2, full: 1, edge: 0.3 },
   // missile lock-on: hold RMB / K, keep the crosshair on an enemy, release to fire
   lock: {
     time: 0.75,            // s of tracking per target
     margin: 5 * DEG,       // aim error allowed around the target's own angular size (auto-aim off)
-    autoMargin: 16 * DEG,  // ... with auto-aim on
+    autoMargin: 6 * DEG,   // ... with auto-aim on: keep the enemy inside this ring while it moves
+    noseCone: 45 * DEG,    // locks only build on targets this close to the NOSE: commit your flight path
+    precise: 2.5 * DEG,    // mean tracking error under this: a kill missile; above: a missile it can dodge
     grace: 0.3,            // s the crosshair may slip off before progress drains
     drain: 1.2,            // progress / s lost after the grace period
     maxTargets: 4,
@@ -292,9 +302,15 @@ export const WEAPONS = {
 // (time to impact, s), and flares that decoy what's inside their window.
 export const THREATS = {
   warnFrom: 5,             // s to impact: the warning starts
-  breakAt: 1.6,            // s: "break / flares now"
-  flares: { charges: 3, recharge: 5, life: 1.3, window: 3.2, eject: 160 }, // window: s-to-impact a flare can still pull a missile off
-  autoFlareAt: 1.1,        // auto-fire: flares go out by themselves this close to impact (s)
+  breakAt: 1.3,            // s: "break now" (== breakWindow[1])
+  flares: { charges: 2, recharge: 9, life: 1.3, window: 3.2, eject: 160 }, // manual only (F / touch button); window: s-to-impact a flare can still pull a missile off
+  // break turn: start a hard turn (or climb / dive) while a missile is inside
+  // the window and it overshoots. Too early and it re-acquires; holding a turn
+  // you were already in doesn't count (the break has to be fresh).
+  breakWindow: [0.15, 1.3], // s to impact
+  breakRate: 0.3,           // rad/s the flight direction must swing (smoothed)
+  breakFresh: 0.55,         // s: the turn must have started this recently
+  breakDeflect: 0.6,        // how far the beaten missile is thrown off its line
 };
 
 export const DIRECTOR = {

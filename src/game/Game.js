@@ -411,11 +411,25 @@ export class Game {
   }
 
   /** any player round / blast that damaged an enemy: the hit has to be felt */
+  /** a fresh break turn inside the window: the missile(s) overshot */
+  onMissileBeaten(n) {
+    if (this.attract) return;
+    this.hud.toast(n > 1 ? `BREAK · ${n} MISSILES OVERSHOT` : 'BREAK · MISSILE OVERSHOT', 'good');
+    this.audio.nearMiss(0.9);
+    this.fx.hit(JUICE.near, 'EVADE'); this.fx.waveAtJet(0.45); this.fx.shake += 0.5;
+  }
+
+  /** a loose lock: the target jinked out of the missile's way */
+  onEnemyEvaded(e) {
+    if (!this.attract) this.hud.toast(`${e.name} DODGED · LOOSE LOCK`, 'warn');
+  }
+
   onEnemyHit(e, amount, source, at, kill) {
     if (this.attract) return;
     this.hud.damageNumber(e, amount, at, kill, source);
-    if (source === 'gun') {
-      this.audio.hitTick(Math.min(1, amount / 30));
+    if (source === 'crit') this.audio.critTick();
+    if (source === 'gun' || source === 'crit') {
+      if (source === 'gun') this.audio.hitTick(Math.min(1, amount / 30));
       const v = this.particles.vector;
       v.ring(at.x, at.y, at.z, 1.5, 11, 0.2, PALETTE.enemy);
       this.particles.normal.burst(at.x, at.y, at.z, 7, (bx, by, bz, k) => ({
@@ -544,13 +558,7 @@ export class Game {
     const engaged = this.weapons.engaged && !!this.weapons.primary;
     if (this.state === 'playing' && !this.attract && !this.useAutopilot && p.alive) {
       this.aim.update(dt, ctl, ctl.gun || engaged || (!AIM.autoFire && this.weapons.holding));
-      this.aim.worldLock = engaged;
-      // auto-fire magnet: once the crosshair is on an enemy, it follows that enemy's motion
-      const t = this.weapons.primary;
-      if (AIM.autoFire && t && this.weapons.assisted && !(ctl.lookX || ctl.lookY)) {
-        const o = this.rig.aimOffsetsFor(t.pos, p);
-        this.aim.pull(o.yaw, o.pitch, AIM.magnet, dt);
-      }
+      this.aim.worldLock = engaged; // no magnet: tracking a moving enemy is your job
     } else this.aim.reset();
 
     if (this.flagsPending) this.syncFlags();
@@ -563,7 +571,7 @@ export class Game {
     this.watchLine(dt);
 
     this.weapons.update(dt, p.alive ? ctl : {});
-    if (p.alive && (ctl.flares || (AIM.autoFire && !this.attract && this.counter.wantsAutoFlare()))) this.counter.deploy();
+    if (p.alive && ctl.flares) this.counter.deploy(); // manual only: defence is flying (break turns)
     this.enemies.update(dt);
     this.projectiles.update(dt);
     this.counter.update(dt);

@@ -78,7 +78,9 @@ export class Projectiles {
   /** `vel` is a WORLD velocity (as aimed); stored relative to the player */
   bullet(owner, pos, vel, damage, color, life = 1.4) {
     if (this.bullets.length >= this.maxBullets) this.bullets.shift();
-    this.bullets.push({ owner, p: pos.clone(), rv: vel.clone().sub(this.game.player.vel), damage, color: new THREE.Color(color), life, age: 0, born: this.game.frame });
+    const b = { owner, p: pos.clone(), rv: vel.clone().sub(this.game.player.vel), damage, color: new THREE.Color(color), life, age: 0, born: this.game.frame };
+    this.bullets.push(b);
+    return b;
   }
 
   /** opts: relSpeed, accel, turnRate, damage, splash, prox, life, armDelay */
@@ -133,7 +135,7 @@ export class Projectiles {
         for (const e of enemies) {
           if (!e.alive) continue;
           if (segSphere(prev, b.p, e.pos, e.radius + 2)) {
-            e.damage(b.damage, 'gun', b.p);
+            e.damage(b.damage, b.crit ? 'crit' : 'gun', b.p);
             dead = true; break;
           }
         }
@@ -164,11 +166,24 @@ export class Projectiles {
       m.age += dt; m.life -= dt;
       let tgtPos = null, tgtRv = null;
       if (m.owner === 'player') {
-        if (m.target && !m.target.alive) m.target = g.weapons.retarget(m);
+        if (m.target && !m.target.alive && !m.lost) m.target = g.weapons.retarget(m);
         if (m.target) { tgtPos = m.target.pos; tgtRv = m.target.vel.clone().sub(pv); }
       } else if (m.decoy) { tgtPos = m.decoy.p; tgtRv = m.decoy.rv; }   // pulled off by a flare
+      else if (m.beaten) { /* out-turned: flies on past, harmless */ }
       else if (player.alive) { tgtPos = player.pos; tgtRv = new THREE.Vector3(); }
       m.speed = Math.min(m.relSpeed, m.speed + m.accel * dt);
+      // loose lock: in the last moment the target may jink out of the way
+      if (m.evade && m.target && tgtPos && !m.rolled && m.p.distanceTo(tgtPos) < m.speed * 0.12) {
+        m.rolled = true;
+        if (Math.random() < m.evade) {
+          const e = m.target;
+          m.dir = _v.copy(m.rv).normalize().clone();
+          _a.crossVectors(m.dir, _d.set(0, 1, 0)).normalize().multiplyScalar(Math.random() < 0.5 ? -1 : 1);
+          e.rv.addScaledVector(_a, 420).y += 120;          // the jink: a hard sidestep
+          m.target = null; m.lost = true; tgtPos = null;
+          g.onEnemyEvaded?.(e);
+        }
+      }
       if (tgtPos && m.age > m.armDelay) {
         const dist = _d.subVectors(tgtPos, m.p).length();
         const closing = Math.max(150, m.speed - tgtRv.dot(_d.clone().normalize()));

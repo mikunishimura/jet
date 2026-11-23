@@ -5,7 +5,13 @@
 // `threats` (closest impact first): the closer the impact, the louder, faster
 // and bigger the warning.
 //
-// Flares (F): eject decoys behind the jet. Any missile whose impact is within
+// Break turn (the main defence, all flying): start a hard turn, climb or dive
+// while a missile is inside THREATS.breakWindow seconds of impact and it
+// overshoots, thrown off to the outside of your turn. Too early and it simply
+// re-acquires; a turn you were already holding doesn't count (it must be a
+// fresh break, see breakFresh). `breakState` is the pure part (unit-tested).
+//
+// Flares (F, manual only): eject decoys behind the jet. Any missile whose impact is within
 // THREATS.flares.window seconds while a flare burns is pulled off onto it and
 // detonates there, harmlessly. Fire too early and the flare is wasted: timing
 // is the skill. Charges recharge one at a time.
@@ -14,6 +20,24 @@ import { THREATS } from '../config.js';
 import { SHAPE } from '../render/Particles.js';
 
 const _r = new THREE.Vector3();
+const _t = new THREE.Vector3();
+
+/**
+ * Pure break-turn detector. Feed the flight direction (unit vector) every
+ * frame; returns whether a FRESH hard break is happening now.
+ * state: { prev: Vector3|null, rate (rad/s, smoothed), hardT (s since the rate crossed breakRate) }
+ */
+export function breakState(state, forward, dt, cfg = THREATS) {
+  if (!state.prev) { state.prev = forward.clone(); state.rate = 0; state.hardT = Infinity; state.turn = new THREE.Vector3(); return false; }
+  const ang = Math.acos(Math.max(-1, Math.min(1, state.prev.dot(forward))));
+  const inst = ang / Math.max(dt, 1e-4);
+  state.turn.subVectors(forward, state.prev);              // which way the nose is swinging
+  state.rate += (inst - state.rate) * (1 - Math.exp(-dt / 0.06));
+  state.prev.copy(forward);
+  if (state.rate >= cfg.breakRate) state.hardT = state.hardT === Infinity ? 0 : state.hardT + dt;
+  else state.hardT = Infinity;
+  return state.hardT <= cfg.breakFresh;
+}
 
 /** seconds until missile m reaches the player (Infinity if it isn't closing) */
 export function timeToImpact(m, player) {
@@ -36,12 +60,30 @@ export class Countermeasures {
     this.flares = [];
     this.threats = [];   // [{ m, tti, level, dist }] closest impact first
     this.beepT = 0;
+    this.brk = { prev: null };
+    this.breaking = false;
   }
 
   get worst() { return this.threats[0] || null; }
 
-  /** auto-fire: is a missile about to land (and a flare ready)? */
-  wantsAutoFlare() { const w = this.worst; return !!w && w.tti < THREATS.autoFlareAt && this.charges > 0; }
+  /** a missile is inside the break window right now (HUD: "BREAK") */
+  get breakCall() { const w = this.worst; return !!w && w.tti >= THREATS.breakWindow[0] && w.tti <= THREATS.breakWindow[1]; }
+
+  /** a fresh hard break beats every missile inside the window: it overshoots to the outside of the turn */
+  beat() {
+    const g = this.game, [lo, hi] = THREATS.breakWindow;
+    let n = 0;
+    for (const t of this.threats) {
+      if (t.tti < lo || t.tti > hi || t.m.beaten) continue;
+      t.m.beaten = true;
+      const sp = t.m.rv.length();
+      _t.copy(this.brk.turn).normalize().multiplyScalar(-THREATS.breakDeflect);
+      t.m.rv.normalize().add(_t).normalize().multiplyScalar(sp);
+      n++;
+    }
+    if (n) g.onMissileBeaten?.(n);
+    return n;
+  }
 
   deploy() {
     const g = this.game, p = g.player, F = THREATS.flares;
@@ -98,15 +140,21 @@ export class Countermeasures {
     this.threats.length = 0;
     if (p.alive) {
       for (const m of g.projectiles.missiles) {
-        if (m.owner !== 'enemy' || m.decoy) continue;
+        if (m.owner !== 'enemy' || m.decoy || m.beaten) continue;
         const tti = timeToImpact(m, p);
         if (!Number.isFinite(tti)) continue;
         this.threats.push({ m, tti, level: threatLevel(tti), dist: m.p.distanceTo(p.pos) });
       }
       this.threats.sort((a, b) => a.tti - b.tti);
       if (this.flares.some((f) => f.life > 0)) this.decoy(); // a burning flare keeps catching
-    }
+      this.breaking = breakState(this.brk, p.forward, dt);
+      if (this.breaking && this.threats.length) this.beat();
+    } else this.brk.prev = null;
 
+    // break call: one sweep the moment the closest missile enters the window
+    const call = p.alive && this.breakCall;
+    if (call && !this.called && !g.attract) g.audio.breakCall?.();
+    this.called = call;
     // warning tone: beeps quicken and rise as the impact closes in
     const w = this.worst;
     if (w && w.level > 0 && !g.attract) {

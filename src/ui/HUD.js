@@ -143,7 +143,7 @@ export class HUD {
     this.set('weapons',
       `<span class="d">gun  </span>[${w.overheated > 0 ? `<span class="r">${heat}</span>` : heat}]\n` +
       `<span class="d">msl  </span>${msl}\n` +
-      `<span class="d">flr  </span>${cm.charges ? flr : `<span class="r">${flr}</span>`} <span class="d">${AIM.autoFire ? 'auto' : 'f'}</span>\n` +
+      `<span class="d">flr  </span>${cm.charges ? flr : `<span class="r">${flr}</span>`} <span class="d">f</span>\n` +
       `<span class="d">lock </span>${lock}`);
 
     this.drawOverlay();
@@ -208,11 +208,20 @@ export class HUD {
         });
         ctx.globalAlpha = 1;
       }
-      // missile trigger held: the lock margin around the crosshair
-      if (w0.holding && w0.detected.length && !AIM.autoFire) {
-        ctx.setLineDash([3 * dpr, 4 * dpr]);
-        this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(AIM.autoAim ? WEAPONS.lock.autoMargin : WEAPONS.lock.margin) * focal, 0, Math.PI * 2); });
-        ctx.setLineDash([]);
+      if (w0.detected.length) {
+        // gun cone (where auto-fire opens up): a faint hairline
+        ctx.globalAlpha = 0.28;
+        this.stroke(ctx, w0.assisted ? RED : INK2, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(AIM.assistCone) * focal, 0, Math.PI * 2); });
+        ctx.globalAlpha = 1;
+        // the lock ring: keep an enemy inside it (dashed)
+        if (w0.holding || AIM.autoFire) {
+          ctx.setLineDash([3 * dpr, 4 * dpr]);
+          this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(AIM.autoAim ? WEAPONS.lock.autoMargin : WEAPONS.lock.margin) * focal, 0, Math.PI * 2); });
+          ctx.setLineDash([]);
+        }
+        // crit ring: solid red while the target sits on center (2x damage)
+        const pt = w0.assisted ? w0.primary : null, onCrit = pt && pt.aimErr <= WEAPONS.aimQuality.crit;
+        this.stroke(ctx, onCrit ? RED : INK2, onCrit ? 2 : 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.max(4 * dpr, Math.tan(WEAPONS.aimQuality.crit) * focal), 0, Math.PI * 2); });
       }
     }
     // hint until the mouse is captured
@@ -288,6 +297,8 @@ export class HUD {
         });
         ctx.restore();
         this.label(ctx, `${Math.round(e.dist)} m`, pr.x - size, pr.y + size + 13 * dpr, RED);
+        // missile locks need the nose: say so when it's the only thing missing
+        if (e.noseAngle > WEAPONS.lock.noseCone && e.dist < WEAPONS.lockRange) this.label(ctx, 'nose → lock', pr.x - size, pr.y + size + 26 * dpr, INK2);
       }
       // hairline hp
       ctx.fillStyle = 'rgba(255,59,48,0.25)'; ctx.fillRect(pr.x - size, pr.y - size - 5 * dpr, size * 2, 1.5 * dpr);
@@ -310,7 +321,10 @@ export class HUD {
           ctx.globalAlpha = 0.3;
           this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(pr.x, pr.y, R, 0, Math.PI * 2); });
           ctx.globalAlpha = ls.out > 0 ? 0.55 : 1;
+          // solid: a precise lock so far (kill missile); dashed: loose (it may dodge)
+          if ((ls.meanErr ?? 0) > WEAPONS.lock.precise) ctx.setLineDash([5 * dpr, 4 * dpr]);
           if (f > 0.003) this.stroke(ctx, RED, 3, () => { ctx.beginPath(); ctx.arc(pr.x, pr.y, R, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); });
+          ctx.setLineDash([]);
           ctx.globalAlpha = 1;
         }
       }
@@ -335,9 +349,11 @@ export class HUD {
       const x = pr.x + n.side * 26 * dpr, y = pr.y - (14 + age * 46) * dpr;
       ctx.globalAlpha = Math.min(1, (life - age) / (life * 0.4));
       ctx.font = `700 ${px}px "JetBrains Mono", monospace`;
-      const txt = n.kill ? `${Math.round(n.value)} ✕` : `${Math.round(n.value)}`;
+      const crit = n.source === 'crit';
+      if (crit) ctx.font = `800 ${px * 1.3}px "JetBrains Mono", monospace`;
+      const txt = n.kill ? `${Math.round(n.value)} ✕` : crit ? `${Math.round(n.value)}!` : `${Math.round(n.value)}`;
       ctx.lineWidth = 3.5 * dpr; ctx.strokeStyle = '#fff'; ctx.strokeText(txt, x, y);
-      ctx.fillStyle = n.kill ? RED : INK; ctx.fillText(txt, x, y);
+      ctx.fillStyle = n.kill || crit ? RED : INK; ctx.fillText(txt, x, y);
     }
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -380,11 +396,10 @@ export class HUD {
         ctx.restore();
       }
     }
-    const w = list[0];
-    if (w && w.tti < THREATS.breakAt && Math.sin(t * 38) > -0.4) {
+    if (g.counter.breakCall && Math.sin(t * 38) > -0.4) {
       ctx.save(); ctx.textAlign = 'center';
       ctx.font = `700 ${22 * dpr}px "JetBrains Mono", monospace`;
-      const txt = g.counter.charges > 0 ? 'break · f flares' : 'break · turn hard';
+      const txt = g.counter.charges > 0 ? '◀ break · turn hard ▶  (f flares)' : '◀ break · turn hard ▶';
       ctx.lineWidth = 4 * dpr; ctx.strokeStyle = '#fff'; ctx.strokeText(txt, cx, H * 0.2);
       ctx.fillStyle = RED; ctx.fillText(txt, cx, H * 0.2); // above the mach slam banner
       ctx.restore();

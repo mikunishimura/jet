@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { ufoMesh, droneMesh, fighterMesh } from './meshes.js';
 import { explosion } from '../render/Particles.js';
+import { WEAPONS } from '../config.js';
 
 const _v = new THREE.Vector3();
 const _d = new THREE.Vector3();
@@ -35,6 +36,18 @@ class Enemy {
   /** spring toward station expressed in player frame */
   station(dt, ahead, side, alt, w = 1.4, maxAcc = 900) {
     const p = this.game.player;
+    // random sidesteps on top of the weave: the crosshair never just sits on it
+    const J = WEAPONS.jink;
+    this.jinkT = (this.jinkT ?? 0) - dt;
+    if (this.jinkT <= 0 && !this.leaving) {
+      const d = this.game.difficulty || 0, k = J.difficulty[0] + (J.difficulty[1] - J.difficulty[0]) * d;
+      this.jinkT = J.every[0] + Math.random() * (J.every[1] - J.every[0]);
+      // mostly to the other side of where it is now: a real direction change
+      const s = -Math.sign(this.jinkSide || (Math.random() - 0.5)) * (Math.random() < 0.75 ? 1 : -1);
+      this.jinkSide = s * J.side * k * (0.45 + 0.55 * Math.random());
+      this.jinkUp = (Math.random() * 2 - 1) * J.up * k;
+    }
+    side += this.jinkSide || 0; alt += this.jinkUp || 0;
     _st.copy(p.pos).addScaledVector(p.flatForward, ahead).addScaledVector(p.right, side);
     // altitudes are authored relative to the player's flight line (26 m base)
     _st.y = Math.max(12, alt - 26 + p.pos.y, this.avoidY || 0);

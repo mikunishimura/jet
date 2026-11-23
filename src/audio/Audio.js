@@ -218,6 +218,10 @@ export class Audio {
   /** confirmed gun hit: a short dry tick (pitch up a little for heavier hits) */
   hitTick(k = 0.5) { this.tone({ freq: 1900 + 700 * k, freqEnd: 1100, dur: 0.035, gain: 0.07, type: 'triangle' }); }
   /** lock building on a target: p = progress 0..1 */
+  /** critical hit (on-center aim): a brighter, ringing double tick */
+  critTick() { this.tone({ freq: 3200, freqEnd: 2400, dur: 0.05, gain: 0.09, type: 'square' }); this.tone({ freq: 4200, dur: 0.04, gain: 0.05, type: 'triangle', delay: 0.03 }); }
+  /** a missile entered the break window: "turn now" */
+  breakCall() { this.tone({ freq: 1400, freqEnd: 700, dur: 0.14, gain: 0.12, type: 'sawtooth' }); }
   lockTick(p) { this.tone({ freq: 520 + 900 * p, dur: 0.035, gain: 0.05, type: 'sine' }); }
   lockOn() { this.tone({ freq: 1500, dur: 0.07, gain: 0.08, type: 'square' }); this.tone({ freq: 2100, dur: 0.09, gain: 0.07, type: 'square', delay: 0.07 }); }
   enemyGun(dist) { const f = this.falloff(dist, 600); if (f > 0.05) this.noiseBurst({ dur: 0.04, gain: 0.15 * f, type: 'bandpass', freq: 2600, q: 2 }); }
