@@ -36,6 +36,8 @@ const frag = /* glsl */`
   uniform vec2 uRing;        // x radius (screen heights), y strength: hollow inverting ring
   uniform vec2 uBeam;        // x vertical beam, y horizontal hairline (inverting)
   uniform float uGhost;      // giant ghost numeral (inverting)
+  uniform float uHostile;    // 0..1 hostile band (between the clouds and orbit): the air boils
+  uniform float uLift;       // 0..1 orbit capture: the frame is dragged upward
   uniform sampler2D tGhost;
   varying vec2 vUv;
 
@@ -78,6 +80,16 @@ const frag = /* glsl */`
     // heat haze, strongest near the edges, grows with barrier charge
     float edge = smoothstep(0.25, 0.75, rc);
     uv += vec2(sin(uv.y * 90.0 + uTime * 40.0), cos(uv.x * 80.0 + uTime * 35.0)) * 0.0018 * uHaze * edge;
+    // hostile band: slow heavy warping that grows toward the edges, plus stepped
+    // horizontal tearing (rows re-rolled ~7x/s: a displacement, never a flash)
+    if (uHostile > 0.0) {
+      float hw = uHostile * smoothstep(0.05, 0.7, rc);
+      uv += vec2(sin(uv.y * 6.0 + uTime * 2.7) + 0.5 * sin(uv.y * 19.0 - uTime * 6.1),
+                 cos(uv.x * 5.0 - uTime * 2.1) + 0.4 * sin(uv.x * 17.0 + uTime * 5.3)) * 0.0045 * hw;
+      float row = floor(vUv.y * 48.0), tick = floor(uTime * 7.0);
+      float tear = step(1.0 - 0.2 * uHostile, hash(vec2(row, tick)));
+      uv.x += (hash(vec2(row * 3.1, tick + 0.5)) - 0.5) * 0.035 * uHostile * tear;
+    }
 
     // glitch: displaced horizontal slices
     float slice = floor(uv.y * 24.0 + floor(uTime * 30.0) * 7.0);
@@ -88,13 +100,14 @@ const frag = /* glsl */`
     // radial blur + chromatic aberration in one loop
     vec2 dir = uv - 0.5;
     float blur = uBlur * smoothstep(0.08, 0.6, rc);
-    float ab = uAberration; // event-only (tier breaks, hits): no constant color fringing on the white world
+    float ab = uAberration + uHostile * 0.007; // event-only (tier breaks, hits) + the hostile band: no constant fringing on the white world
     vec3 col = vec3(0.0);
     const int N = 8;
     for (int i = 0; i < N; i++) {
       float t = float(i) / float(N - 1);
       float s = 1.0 - blur * 0.09 * t;
       vec2 suv = 0.5 + dir * s;
+      suv.y -= t * uLift * 0.04;   // orbit capture: everything smears upward
       col.r += texture2D(tScene, 0.5 + (suv - 0.5) * (1.0 + ab)).r;
       col.g += texture2D(tScene, suv).g;
       col.b += texture2D(tScene, 0.5 + (suv - 0.5) * (1.0 - ab)).b;
@@ -108,7 +121,7 @@ const frag = /* glsl */`
 
     // desaturation (tier loss)
     float l = dot(col, vec3(0.299, 0.587, 0.114));
-    col = mix(col, vec3(l), uDesat);
+    col = mix(col, vec3(l), max(uDesat, uHostile * 0.3));
 
     // negative color disturbance: full inversion + per-slice partial inversions
     float neg = uNegative;
@@ -139,11 +152,18 @@ const frag = /* glsl */`
     col = mix(col, 1.0 - col, clamp(inv, 0.0, 1.0) * uInvert);
     col = mix(col, vec3(1.0), uWhite);
 
+    // hostile band: ink closes in from the edges with a slow red creep (≈0.6 Hz swell,
+    // no flashes) and dark scanlines run across the frame
+    if (uHostile > 0.0) {
+      col *= 1.0 - uHostile * 0.4 * smoothstep(0.3, 1.0, rc);
+      col = mix(col, vec3(1.0, 0.1, 0.15), uHostile * smoothstep(0.4, 1.0, rc) * (0.2 + 0.08 * sin(uTime * 3.7)));
+      col *= 1.0 - uHostile * 0.08 * step(0.5, fract(gl_FragCoord.y * 0.25));
+    }
     // damage: red pulse from edges
     col = mix(col, vec3(1.0, 0.1, 0.15), uDamage * smoothstep(0.3, 0.85, rc) * 0.8);
     // vignette + grain
     col *= 1.0 - uVignette * smoothstep(0.45, 1.05, rc);
-    col += (hash(vUv * uRes + uTime) - 0.5) * 0.012;
+    col += (hash(vUv * uRes + uTime) - 0.5) * (0.012 + 0.07 * uHostile);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -165,7 +185,7 @@ export class PostFX {
         uDesat: { value: 0 }, uCone: { value: 0 },
         uCenter: { value: new THREE.Vector2(0.5, 0.5) }, uSwirl: { value: new THREE.Vector2() }, uFlood: { value: 0 }, uWhite: { value: 0 },
         uRing: { value: new THREE.Vector2() }, uBeam: { value: new THREE.Vector2() },
-        uGhost: { value: 0 }, tGhost: { value: null },
+        uGhost: { value: 0 }, tGhost: { value: null }, uHostile: { value: 0 }, uLift: { value: 0 },
       },
       vertexShader: vert, fragmentShader: frag, depthTest: false, depthWrite: false,
     });

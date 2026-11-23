@@ -142,6 +142,9 @@ export class FXDirector {
     u.uDesat.value = this.desat;
     u.uVignette.value = 0.08 + 0.12 * speed01 + AMBIENT.breathe.vignette * breathe; // light: keep the white world white
     u.uCone.value = Math.max(0, (s.charge - 0.55) / 0.45) * (s.hasNext ? 1 : 0);
+    // hostile band (between the clouds and orbit): boiling air; orbit capture drags the frame up
+    u.uHostile.value = (s.hostile || 0) * I;
+    u.uLift.value = (s.lift || 0) * I * P.blur;
   }
   get timeScale() { return this.hitStop > 0 ? 0.22 : 1; }
 }

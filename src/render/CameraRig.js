@@ -60,6 +60,12 @@ export class CameraRig {
     const sy = (Math.sin(t * 41.3 + 2.1) + Math.sin(t * 19.1) * 0.6) * 0.35 * k;
     const sr = Math.sin(t * 29.3 + 0.7) * 0.018 * k;
     const buffet = (s.level >= 3 ? (s.level - 2) * 0.03 : 0) + s.charge * 0.12;
+    // hostile band: a heavy, slow, sea-sick wobble on top of the shake (the
+    // horizon tilts even in the chase camera); follows the shake setting
+    const hz = (player.hostility || 0) * (fx.prefs?.shake ?? 1);
+    const wx = (Math.sin(t * 2.3) + Math.sin(t * 5.7 + 1.0) * 0.5 + Math.sin(t * 13.1 + 2.0) * 0.25) * hz;
+    const wy = (Math.sin(t * 1.9 + 0.7) + Math.sin(t * 6.3 + 2.4) * 0.5 + Math.sin(t * 11.7) * 0.25) * hz;
+    const wr = (Math.sin(t * 1.3 + 0.3) * 0.05 + Math.sin(t * 4.1 + 1.7) * 0.02) * hz;
 
     if (this.mode === 'chase') {
       if (this.snap) { this.camHeading = player.heading; this.camPitch = player.pitch * CHASE.pitchShare; this.snap = false; }
@@ -84,9 +90,10 @@ export class CameraRig {
       // unshaken aim ray (published for weapons + HUD)
       this.aimOffset.set(ux - player.pos.x, uy - player.pos.y, uz - player.pos.z);
       this.aimDir.set(this._target.x - ux, this._target.y - uy, this._target.z - uz).normalize();
-      cam.position.set(ux + sx * 0.6, uy + sy * 0.6, uz);
+      cam.position.set(ux + sx * 0.6 + wx * 1.6, uy + sy * 0.6 + wy * 1.3, uz);
       cam.up.set(0, 1, 0);
-      cam.lookAt(this._target); // up = world Y: the horizon never tilts
+      cam.lookAt(this._target); // up = world Y: the horizon never tilts (outside the hostile band)
+      if (wr) cam.rotateZ(wr);
       this.roll = 0;
       this.cockpitLocal.identity();
     } else {
@@ -101,7 +108,7 @@ export class CameraRig {
       this.baseHeading = player.heading; this.basePitch = -0.035 + this.pitchView;
       // head look: camera = airframe orientation + aim offset
       const hp = -0.035 + this.pitchView + ap, hh = player.heading + ay;
-      this.euler.set(hp + Math.sin(t * 53) * 0.002 * buffet + sy * 0.004, hh + sx * 0.003, this.roll + sr + Math.sin(t * 61) * 0.003 * buffet);
+      this.euler.set(hp + Math.sin(t * 53) * 0.002 * buffet + sy * 0.004 + wy * 0.012, hh + sx * 0.003 + wx * 0.01, this.roll + sr + Math.sin(t * 61) * 0.003 * buffet + wr * 1.5);
       cam.quaternion.setFromEuler(this.euler);
       // the airframe must NOT turn with the head: cockpit local = camera^-1 * airframe
       this._q1.setFromEuler(this._e.set(hp, hh, this.roll));

@@ -1,7 +1,8 @@
 // The player jet: stick model, turbulence, speed tiers, hull, terrain contact.
 // Emits gameplay events through `emit(type, payload)`.
 import * as THREE from 'three';
-import { FLIGHT, HEALTH, COLLISION, TIERS, ALTITUDE, FLAGS, SPACE } from '../config.js';
+import { FLIGHT, HEALTH, COLLISION, TIERS, ALTITUDE, FLAGS, SPACE, HOSTILE } from '../config.js';
+import { hostileField } from './hostile.js';
 import { airDensity } from '../space/orbit.js';
 import { SpeedSystem } from './SpeedSystem.js';
 import { deflect3, centrality, SPHERE } from './Collision.js';
@@ -41,6 +42,12 @@ export class Player {
     this.seedTurbulence((Math.random() * 1e9) | 0);
     this.scrapeCooldown = 0;
     this.traveled = 0;
+    // hostile band (between the clouds and orbit): vertical pull, exposure, buffet
+    this.drift = 0;          // m/s of vertical pull (gravity < 0, orbit capture > 0)
+    this.exposure = 0;       // 0..1: time spent in the band, the pull builds with it
+    this.hostility = 0;      // 0..1: buffet + screen distortion right now
+    this.hostile = hostileField(this.pos.y);
+    this.joltYaw = 0; this.joltPitch = 0;
     this.speedSys.reset(0);
     this.updateBasis();
   }
@@ -122,15 +129,35 @@ export class Player {
     this.vstick = Player.stick(this.vstick, vin, dt, FLIGHT.pitchRamp, FLIGHT.steerRelease);
     this.levelSnap -= dt;
     if (vin !== 0) this.levelSnap = 0;
+    // hostile band: gravity drags you down the longer you stay, orbit pulls you up near the top
+    const hf = this.hostile = hostileField(this.pos.y);
+    this.exposure = hf.t > 0 ? Math.min(1, this.exposure + dt / HOSTILE.buildUp) : Math.max(0, this.exposure - dt / HOSTILE.calm);
+    const pull = hf.gravity * (HOSTILE.sinkStart + (1 - HOSTILE.sinkStart) * this.exposure);
+    this.hostility = hf.hostility * (0.4 + 0.6 * this.exposure);
     // pitch: stick drives the flight-path angle; release and the nose auto-levels
+    // (in the hostile band it settles below level, or above it while orbit pulls you up)
     this.pitch += Math.sign(this.vstick) * Math.pow(Math.abs(this.vstick), FLIGHT.pitchCurve) * FLIGHT.pitchRate * dt;
-    if (vin === 0) this.pitch *= Math.exp(-(this.levelSnap > 0 ? FLIGHT.levelSnap : FLIGHT.autoLevel) * dt);
+    if (vin === 0) {
+      const rest = -pull * HOSTILE.noseDrop + hf.capture * HOSTILE.noseRise;
+      this.pitch = rest + (this.pitch - rest) * Math.exp(-(this.levelSnap > 0 ? FLIGHT.levelSnap : FLIGHT.autoLevel) * dt);
+    }
+    if (this.hostility > 0) {
+      // buffet: short-correlated yaw + pitch jolts you can't trim out (and can't hold a barrier line through)
+      const jt = HOSTILE.joltTau, k = Math.sqrt((2 * dt) / jt);
+      this.joltYaw += (-this.joltYaw / jt) * dt + k * this.gauss();
+      this.joltPitch += (-this.joltPitch / jt) * dt + k * this.gauss();
+      this.heading += this.joltYaw * HOSTILE.yawJolt * this.hostility * dt;
+      this.pitch += this.joltPitch * HOSTILE.pitchJolt * this.hostility * dt;
+    }
     this.pitch = Math.max(-FLIGHT.maxPitch, Math.min(FLIGHT.maxPitch, this.pitch));
     // pinned against a boundary: the nose can't keep pointing into it. Otherwise
     // the flight direction (and the velocity every player-frame object rides on)
     // keeps climbing/diving while the position is clamped -> enemies drift.
     if (this.pos.y >= FLIGHT.ceiling - 0.01 && this.pitch > 0) this.pitch = 0;
     if (this.pos.y <= FLIGHT.minAltitude + 0.01 && this.pitch < 0) this.pitch = 0;
+    const climb = Math.max(0, this.pitch) / FLIGHT.maxPitch;
+    const driftTarget = (hf.capture * HOSTILE.lift - pull * HOSTILE.sink * (1 - HOSTILE.climbRelief * climb)) * sys.speed;
+    this.drift += (driftTarget - this.drift) * (1 - Math.exp(-dt / HOSTILE.driftTau));
     // curved response: short taps trim fractions of a degree, holds are hard turns
     const yawRate = -Math.sign(this.steer) * Math.pow(Math.abs(this.steer), FLIGHT.steerCurve) * tier.yawRate;
 
@@ -159,6 +186,7 @@ export class Player {
     const ox = world.origin.x, oz = world.origin.z;
     for (let i = 0; i < steps; i++) {
       this.pos.addScaledVector(this.forward, h);
+      this.pos.y += this.drift * (dt / steps);
       if (this.pos.y > FLIGHT.ceiling) {
         if (this.pos.y > FLIGHT.ceiling + 0.5 && !this.atCeiling) this.emit('ceiling', {});
         this.atCeiling = true;
@@ -173,6 +201,7 @@ export class Player {
     }
     this.traveled += dist;
     this.vel.copy(this.forward).multiplyScalar(sys.speed);
+    this.vel.y += this.drift;
     // never report vertical motion into a boundary we're pressed against
     if (this.pos.y >= FLIGHT.ceiling - 0.01 && this.vel.y > 0) this.vel.y = 0;
     if (this.pos.y <= FLIGHT.minAltitude + 0.01 && this.vel.y < 0) this.vel.y = 0;

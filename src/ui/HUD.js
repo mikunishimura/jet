@@ -2,7 +2,8 @@
 // straight-line ring, rounded red target boxes, off-screen chevrons, pickups,
 // a hairline altimeter. Palette: ink + grays, red only for hostiles/danger.
 import * as THREE from 'three';
-import { TIERS, MACH_FACTOR, DEG, WEAPONS, FLIGHT, ALTITUDE, FLAGS, SPACE, THREATS, AIM } from '../config.js';
+import { TIERS, MACH_FACTOR, DEG, WEAPONS, FLIGHT, ALTITUDE, FLAGS, SPACE, THREATS, AIM, HOSTILE } from '../config.js';
+import { hostileTop, captureAltitude } from '../game/hostile.js';
 import { lockDisplay } from '../combat/Weapons.js';
 import { curveDrop } from '../render/curvature.js';
 import { DECK_ALTITUDE } from '../world/Clouds.js';
@@ -432,6 +433,12 @@ export class HUD {
       ctx.strokeStyle = INK; ctx.beginPath(); ctx.moveTo(x, yk); ctx.lineTo(x, yOf(max)); ctx.stroke();
       this.stroke(ctx, INK2, 1, () => { ctx.beginPath(); ctx.moveTo(x - 5 * dpr, yk); ctx.lineTo(x + 5 * dpr, yk); });
     }
+    // hostile band: a heavy red bar where gravity drags you down; the capture
+    // line (space flight) marks where orbit takes over and pulls you up
+    const yc = yOf(Math.min(captureAltitude(), hostileTop()));
+    ctx.lineWidth = 6 * dpr; ctx.strokeStyle = RED;
+    ctx.beginPath(); ctx.moveTo(x, yOf(HOSTILE.floor)); ctx.lineTo(x, yc); ctx.stroke();
+    if (space) this.stroke(ctx, RED, 1.5, () => { ctx.beginPath(); ctx.moveTo(x - 7 * dpr, yc); ctx.lineTo(x + 7 * dpr, yc); });
     // cloud deck tick
     const yd = yOf(DECK_ALTITUDE);
     this.stroke(ctx, INK2, 1, () => { ctx.beginPath(); ctx.moveTo(x - 5 * dpr, yd); ctx.lineTo(x + 5 * dpr, yd); });
@@ -439,12 +446,15 @@ export class HUD {
     ctx.textAlign = 'right';
     if (Math.abs(y - yd) > 26 * dpr) this.label(ctx, 'clouds', x - 15 * dpr, yd + 4 * dpr, INK2); // hide when the readout is there
     if (space && Math.abs(y - yk) > 26 * dpr) this.label(ctx, 'kármán', x - 15 * dpr, yk + 4 * dpr, INK2);
+    if (space && Math.abs(y - yc) > 26 * dpr && Math.abs(yc - yk) > 12 * dpr) this.label(ctx, 'escape', x - 15 * dpr, yc + 4 * dpr, RED);
     ctx.fillStyle = INK;
     ctx.beginPath(); ctx.moveTo(x - 4 * dpr, y); ctx.lineTo(x - 11 * dpr, y - 4.5 * dpr); ctx.lineTo(x - 11 * dpr, y + 4.5 * dpr); ctx.closePath(); ctx.fill();
     ctx.textAlign = 'right';
     const band = p.band;
+    const hz = p.hostile?.t > 0 ? (p.hostile.capture ? 'orbit capture ↑' : 'gravity well ↓') : null;
     this.label(ctx, alt >= 1000 ? `${(alt / 1000).toFixed(1)} km` : `${Math.round(alt)} m`, x - 15 * dpr, y + 4 * dpr, band === 'high' ? RED : INK);
-    if (band !== 'mid') this.label(ctx, { low: 'ground effect', high: 'radar', space: 'orbit' }[band], x - 15 * dpr, y + 17 * dpr, band === 'high' ? RED : INK2);
+    if (hz) this.label(ctx, hz, x - 15 * dpr, y + 17 * dpr, RED);
+    else if (band !== 'mid') this.label(ctx, { low: 'ground effect', high: 'radar', space: 'orbit' }[band], x - 15 * dpr, y + 17 * dpr, band === 'high' ? RED : INK2);
     ctx.restore();
   }
 }

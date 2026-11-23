@@ -14,6 +14,7 @@ export class Audio {
     this.lastGun = 0;
     this.levels = { muted: false, master: 0.8, engine: 0.8, sfx: 0.9 };
     this.air = 1; // 1 = sea level .. 0 = vacuum (space flight): wind and roar fade, the engine goes muffled
+    this.hostile = 0; // 0..1 hostile band: a low, throbbing structural rumble
   }
 
   /** user audio settings: { muted, master, engine, sfx } (0..1). Safe before init. */
@@ -79,6 +80,15 @@ export class Audio {
     this.riserGain = ctx.createGain(); this.riserGain.gain.value = 0;
     this.riser.connect(this.riserFilter); this.riserFilter.connect(this.riserGain); this.riserGain.connect(this.engineBus);
     this.riser.start();
+
+    // hostile band rumble: low noise through a lowpass whose cutoff wobbles (LFO)
+    this.rumble = this.loopNoise();
+    this.rumbleFilter = ctx.createBiquadFilter(); this.rumbleFilter.type = 'lowpass'; this.rumbleFilter.frequency.value = 90; this.rumbleFilter.Q.value = 4;
+    this.rumbleLfo = ctx.createOscillator(); this.rumbleLfo.frequency.value = 2.3;
+    const lfoDepth = ctx.createGain(); lfoDepth.gain.value = 45;
+    this.rumbleLfo.connect(lfoDepth); lfoDepth.connect(this.rumbleFilter.frequency); this.rumbleLfo.start();
+    this.rumbleGain = ctx.createGain(); this.rumbleGain.gain.value = 0;
+    this.rumble.connect(this.rumbleFilter); this.rumbleFilter.connect(this.rumbleGain); this.rumbleGain.connect(this.engineBus);
   }
 
   loopNoise() {
@@ -122,6 +132,8 @@ export class Audio {
     this.riser.frequency.setTargetAtTime(110 + charge * charge * 900 * (0.6 + tier * 0.15), t, 0.05);
     this.riserFilter.frequency.setTargetAtTime(300 + charge * 2600, t, 0.05);
     this.riserGain.gain.setTargetAtTime(on * charge * charge * 0.12, t, 0.05);
+    this.rumbleGain.gain.setTargetAtTime(on * this.hostile * 1.1, t, 0.25);
+    this.rumbleLfo.frequency.setTargetAtTime(1.6 + this.hostile * 2.2, t, 0.25);
   }
 
   noiseBurst({ dur = 0.2, gain = 0.3, type = 'lowpass', freq = 1000, freqEnd = null, q = 1, attack = 0.002, delay = 0 }) {

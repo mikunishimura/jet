@@ -104,6 +104,33 @@ export const SPACE = {
   colors: { space: 0x04060c, planetshine: 0x5d8fd8 },
 };
 
+// The hostile band: the empty sky between the weather and orbit. There is
+// nothing to do up there, so it must not be a place to cruise. From `floor`
+// (just over the 8 km cloud deck) to the top (the Kármán line with space
+// flight, the containment ceiling without) gravity drags you back down, the
+// airframe and camera are buffeted and the screen boils (PostFX uHostile).
+// The longer you stay, the harder it pulls. With space flight on, past
+// `capture` (80% of the way up) orbit takes over and pulls you into space.
+export const HOSTILE = {
+  floor: 10000,          // m: starts just over the cloud deck (DECK_ALTITUDE 8 km)
+  ramp: 0.1,             // fraction of the band over which it fades in from the floor
+  floorPull: 0.35,       // gravity share left right at the floor, so it carries you out of the band
+  capture: 0.8,          // space flight: above this fraction of the band, space pulls you up
+  sink: 0.24,            // gravity: sink rate at full pull, as a fraction of airspeed
+  sinkStart: 0.45,       // share of the pull felt on entry; the rest builds with exposure
+  climbRelief: 0.5,      // a committed climb (full pitch up) cuts the sink by this much
+  noseDrop: 9 * DEG,     // hands off, the nose settles this far below level (fully exposed)
+  lift: 0.32,            // orbit capture: climb rate at full pull, fraction of airspeed
+  noseRise: 12 * DEG,    // hands off in the capture zone, the nose lifts toward space
+  driftTau: 0.6,         // s: the vertical pull eases in and out (no jolts at the borders)
+  buildUp: 6,            // s inside the band to reach full exposure
+  calm: 2.5,             // s outside to shed it
+  yawJolt: 0.07,         // rad/s std of buffet yaw at full hostility (breaks the barrier line)
+  pitchJolt: 0.09,       // rad/s std of buffet pitch
+  joltTau: 0.45,         // s: buffet correlation time
+  captureCalm: 0.75,     // hostility drops by this much as orbit pulls you up to the edge
+};
+
 // Altitude bands: low flying is risky but rewarded; high flying is safe from
 // rocks but exposes you to radar and slows barrier charging.
 export const ALTITUDE = {

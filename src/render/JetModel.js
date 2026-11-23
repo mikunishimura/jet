@@ -77,7 +77,12 @@ export class JetModel {
     if (!this.root.visible) { for (const tr of this.trails) tr.n = 0; return; }
     this.root.position.copy(player.pos);
     this.root.rotation.set(player.pitch, player.heading, 0, 'YXZ');
-    this.body.rotation.z = this.bank;
+    // hostile band: the airframe shudders (visual only; hardpoints follow the clean bank)
+    const hz = player.hostility || 0;
+    this.buffetT = (this.buffetT || 0) + dt;
+    const bt = this.buffetT;
+    this.body.rotation.z = this.bank + hz * (Math.sin(bt * 23.1) * 0.05 + Math.sin(bt * 7.3 + 1.1) * 0.08);
+    this.body.rotation.x = hz * (Math.sin(bt * 19.7 + 0.4) * 0.03 + Math.sin(bt * 5.9) * 0.04);
     const s = player.speedSys;
     const power = 0.45 + 0.12 * s.level + (player.throttle ? 0.3 : 0) + s.charge * 0.4 - (player.braking ? 0.3 : 0);
     for (const f of this.flames) {

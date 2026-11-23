@@ -1,6 +1,7 @@
 // Orchestrates systems, the frame loop, game state, director, scoring.
 import * as THREE from 'three';
-import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV, AMBIENT, FLAGS, SPACE } from '../config.js';
+import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV, AMBIENT, FLAGS, SPACE, HOSTILE } from '../config.js';
+import { captureAltitude } from './hostile.js';
 import { resolveFlag } from '../core/flags.js';
 import { Space } from '../space/Space.js';
 import { Settings } from '../core/Settings.js';
@@ -237,6 +238,7 @@ export class Game {
     this.director = { wave: DIRECTOR.firstWave, pickup: 14 };
     this.deathTimer = 0;
     this.lastBand = 'mid';
+    this.lastZone = 'clear';
     this.deckSide = -1; // -1 below the cloud deck, +1 above
     this.rig?.reset();
     this.world.prewarm(0, 0, 0, -1, 1);
@@ -561,6 +563,16 @@ export class Game {
         else if (band === 'low') this.hud.toast(`GROUND EFFECT · BARRIER ×${ALTITUDE.groundEffectCharge}`, 'good');
         this.lastBand = band;
       }
+      // hostile band: you can't cruise between the clouds and orbit
+      const zone = p.hostile.capture ? 'capture' : p.hostile.t > 0 ? 'gravity' : 'clear';
+      if (zone !== this.lastZone) {
+        if (zone === 'gravity' && this.lastZone !== 'capture') {
+          this.hud.toast(FLAGS.space ? `GRAVITY WELL · CLIMB PAST ${Math.round(captureAltitude() / 1000)} KM OR DIVE` : `GRAVITY WELL · DIVE BELOW ${HOSTILE.floor / 1000} KM`, 'danger');
+          this.audio.tierDown();
+        } else if (zone === 'capture') { this.vaporRing(); this.hud.toast('ORBIT CAPTURE · PULLED INTO SPACE', 'good'); }
+        else if (zone === 'clear' && this.lastZone === 'gravity') this.hud.toast('OUT OF THE GRAVITY WELL', 'good');
+        this.lastZone = zone;
+      }
     }
     // stats
     if (p.alive && p.speedSys.engaged && !this.attract) {
@@ -586,8 +598,11 @@ export class Game {
       throttle: p.throttle, braking: p.braking, boosting: this.fx.boosting, alive: p.alive && s.engaged,
       bands: this.audio.readBands(this.ambientBands) ? this.ambientBands : null, prefs: this.fx.prefs,
     });
+    const live = p.alive && !this.attract;
     this.fx.update(real, this.time, {
       speed: s.speed, charge: s.charge, tier: s.tier, hasNext: !!s.next, center: this.jetOnScreen(), ambient: amb,
+      hostile: live ? p.hostility : 0,
+      lift: live ? Math.min(1, Math.max(0, p.drift) / (HOSTILE.lift * Math.max(1, s.speed))) : 0,
       lowHealthPulse: p.alive && p.health < 30 && !this.attract ? (0.25 + 0.15 * Math.sin(this.time * 8)) * (1 - p.health / 30) : 0,
     });
     const pov = this.rig.mode === 'cockpit';
@@ -612,6 +627,7 @@ export class Game {
       if (!this.attract) this.hud.toast(side > 0 ? 'above the cloud deck' : 'below the cloud deck');
     }
     this.deckSide = side;
+    this.audio.hostile = p.alive && !this.attract ? p.hostility : 0;
     this.audio.update(s.speed / TIERS[TIERS.length - 1].speed, s.level, s.charge, p.throttle, p.braking, p.alive && s.engaged && !this.attract);
     if (this.state !== 'menu') this.hud.update();
 

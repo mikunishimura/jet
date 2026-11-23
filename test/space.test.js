@@ -39,8 +39,11 @@ test('flag off: the 24 km earth ceiling, no space band, climbing pins at the cei
   assert.equal(FLIGHT.ceiling, FLIGHT.earthCeiling);
   const p = new Player(() => {}); p.seedTurbulence(3);
   p.pos.y = FLIGHT.earthCeiling - 500;
-  for (let t = 0; t < 3; t += DT) p.update(DT, { ...base, up: true }, W);
-  assert.equal(p.pos.y, FLIGHT.earthCeiling);
+  let top = 0;
+  for (let t = 0; t < 3; t += DT) { p.update(DT, { ...base, up: true }, W); top = Math.max(top, p.pos.y); }
+  assert.equal(top, FLIGHT.earthCeiling, 'never past the ceiling');
+  // the hostile band's gravity keeps tugging you off it while you hold climb
+  assert.ok(p.pos.y > FLIGHT.earthCeiling - 100, `y=${p.pos.y}`);
   assert.equal(p.band, 'high');
 }));
 
