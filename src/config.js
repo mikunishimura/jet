@@ -131,6 +131,22 @@ export const HOSTILE = {
   captureCalm: 0.75,     // hostility drops by this much as orbit pulls you up to the edge
 };
 
+// How the jet model rides rough air in the hostile band (src/render/turbulence.js).
+// Visual only: the flight path is buffeted by HOSTILE.yawJolt / pitchJolt.
+// chop: smooth random motion (rad, m); bump: kicks from random air pockets
+// (spring velocity, rad/s and m/s), which settle on an under-damped mount.
+export const TURBULENCE = {
+  chopHz: [1.7, 6.5],     // noise rates of the two octaves (points per second)
+  chop: { roll: 0.05, pitch: 0.022, yaw: 0.012, heave: 0.35, sway: 0.2 },
+  gustHz: 0.35,           // the rough air comes and goes in waves this slow
+  bumpRate: [0.6, 1.8],   // air pockets per second, entering .. fully exposed
+  doubleChance: 0.3,      // a second smaller pocket right after the first
+  dropShare: 0.7,         // most pockets drop the jet, the rest lift it
+  bump: { heave: 16, pitch: 0.55, roll: 1.4, yaw: 0.35, sway: 5 },
+  springHz: 1.5,          // the mount's natural frequency
+  damping: 0.32,          // under-damped: a drop overshoots once, then settles
+};
+
 // Altitude bands: low flying is risky but rewarded; high flying is safe from
 // rocks but exposes you to radar and slows barrier charging.
 export const ALTITUDE = {
