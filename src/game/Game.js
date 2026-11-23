@@ -1,7 +1,8 @@
 // Orchestrates systems, the frame loop, game state, director, scoring.
 import * as THREE from 'three';
-import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV, AMBIENT, FLAGS, SPACE, HOSTILE } from '../config.js';
+import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV, AMBIENT, FLAGS, SPACE, HOSTILE, BREAKER } from '../config.js';
 import { captureAltitude } from './hostile.js';
+import { LineWatch } from './LineWatch.js';
 import { resolveFlag } from '../core/flags.js';
 import { Space } from '../space/Space.js';
 import { Settings } from '../core/Settings.js';
@@ -135,6 +136,8 @@ export class Game {
     tmp.forEach((t, i) => { t.position.set(p.pos.x + i * 20, p.pos.y, p.pos.z - 60); this.scene.add(t); });
     const orbit = this.space?.warmupObject(p.pos);
     if (orbit) this.scene.add(orbit);
+    const breaker = this.hazards.warmupBreaker(p.pos);
+    this.scene.add(breaker);
     patchTree(this.scene); // planet curvature on built-in materials before they compile
     this.renderer.compile(this.scene, this.camera);
     this.renderer.setRenderTarget(this.post.target);
@@ -142,6 +145,7 @@ export class Game {
     this.renderer.setRenderTarget(null);
     tmp.forEach((t) => this.scene.remove(t));
     if (orbit) this.scene.remove(orbit);
+    this.scene.remove(breaker);
     this.projectiles.reset();
     this.pickups.reset();
     void m; void e; void pk;
@@ -221,6 +225,7 @@ export class Game {
     this.syncFlags(true); // a new flight always lands pending flag changes
     this.world.reset(seed);
     this.hazards.reset();
+    this.lineWatch = new LineWatch();
     this.difficulty = 0;
     this.player.reset();
     this.ambient?.reset();
@@ -478,6 +483,17 @@ export class Game {
     }
   }
 
+  /** line breakers: hold one course too long and the world puts a rock on it */
+  watchLine(dt) {
+    const p = this.player;
+    if (this.attract || !p.alive || !p.speedSys.engaged) return;
+    const d = this.difficulty || 0;
+    const course = this.lineWatch.update(dt, p.heading, p.pitch, lerp(BREAKER.patience[0], BREAKER.patience[1], d));
+    if (!course) return;
+    const b = this.hazards.spawnBreaker(p, d, course);
+    if (b) this.audio.breaker();
+  }
+
   rebaseIfNeeded() {
     const p = this.player;
     if (Math.hypot(p.pos.x, p.pos.z) < WORLD.rebaseDistance) return;
@@ -544,6 +560,7 @@ export class Game {
     const absX = p.pos.x + ox, absZ = p.pos.z + oz;
     this.world.update(absX, absZ, p.flatForward.x, p.flatForward.z, p.speedSys.tier, this.time, p.pos.y);
     this.hazards.update(dt, p, this.difficulty || 0);
+    this.watchLine(dt);
 
     this.weapons.update(dt, p.alive ? ctl : {});
     if (p.alive && (ctl.flares || (AIM.autoFire && !this.attract && this.counter.wantsAutoFlare()))) this.counter.deploy();
@@ -663,6 +680,8 @@ export class Game {
       autopilot(on = true) { g.useAutopilot = on; },
       /** teleport to an altitude (m), e.g. debug.altitude(90000) for orbit */
       altitude(y) { const p = g.player; p.pos.y = p.prevPos.y = Math.min(FLIGHT.ceiling, Math.max(FLIGHT.minAltitude, y)); p.pitch = 0; p.updateBasis(); },
+      /** drop a line breaker on the current course now: 'block' | 'fork' | 'curtain' */
+      breaker(kind) { return !!g.hazards.spawnBreaker(g.player, g.difficulty || 0, { rate: g.lineWatch.rate, kind: 'debug' }, kind); },
       orbitEvent(kind) { return g.hazards.space ? g.hazards.spawnOrbit(g.player, g.difficulty || 0, kind) : false; },
       info() {
         const i = g.renderer.info;

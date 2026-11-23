@@ -222,6 +222,29 @@ export const PATH = {
   patterns: { pair: 3, spire: 2.5, boulder: 1.5, mesa: 1, gate: 1.4, cluster: 1, wall: 0.6, vista: 1.6 },
 };
 
+// Line breakers: you can't hold one course forever. A watcher tracks your
+// course (heading, turn rate, climb angle). When you've kept the same one,
+// straight or a steady left / right turn, for `patience` seconds, an
+// obstacle rises (or materializes, off the ground) right where that course
+// takes you `lead` seconds from now. Any real course change (a turn of
+// `breakYaw` away from where the old course would point, or a climb / dive of
+// `breakPitch`) resets the watch. Sized to cover `coverDeg` of the approach,
+// so a trim never clears it: you have to commit to a dodge.
+export const BREAKER = {
+  firstAfter: 7,           // s of flight before the first breaker
+  patience: [6.5, 3.6],    // s on one course before a breaker, easy .. max difficulty
+  lead: [3.0, 2.3],        // s from spawn to contact
+  breakYaw: 12 * DEG,      // a course change: heading this far from the held course's prediction
+  breakPitch: 7 * DEG,     //   ... or the climb angle this far from the held one
+  rateTau: 0.35,           // s: turn-rate smoothing (gusts and trims don't count)
+  straightRate: 0.05,      // rad/s: a smoothed turn rate under this is "straight"
+  coverDeg: 4.5,           // obstacle radius = this angle of the approach distance
+  radius: [450, 3600],     // m clamp
+  rise: 0.45,              // s for the obstacle to rise / materialize (masks the pop-in)
+  patterns: { block: 3, fork: 2, curtain: 1.2 }, // curtain: floating only (go over / under)
+  forkGap: 0.45,           // fork: gap between the two rocks, in radii (thread it for a near miss)
+};
+
 // Mouse look / aim. The mouse never steers the jet: it aims the camera and
 // the guns. Aim is an offset relative to the jet's flight direction.
 // Player airframe skins (built in render/skins.js). The first one is the default.

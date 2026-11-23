@@ -320,6 +320,12 @@ export class Audio {
     this.noiseBurst({ dur: 0.04, gain: 0.22, type: 'highpass', freq: 3000, attack: 0.001, delay });
     this.voice({ type: 'triangle', f0: 1200, attack: 0.002, release: 0.06, gain: 0.07, delay });
   }
+  /** a line breaker rises on your course: a deep shove of air and a two-note warning */
+  breaker() {
+    this.noiseBurst({ dur: 0.5, gain: 0.45, type: 'lowpass', freq: 90, freqEnd: 900, attack: 0.04 });
+    this.tone({ freq: 196, freqEnd: 180, dur: 0.12, gain: 0.12, type: 'square' });
+    this.tone({ freq: 294, freqEnd: 270, dur: 0.16, gain: 0.12, type: 'square', delay: 0.13 });
+  }
   alarm() { this.tone({ freq: 520, dur: 0.18, gain: 0.1, type: 'square' }); this.tone({ freq: 390, dur: 0.18, gain: 0.1, type: 'square', delay: 0.2 }); }
   milestone() { [784, 988, 1175].forEach((f, i) => this.tone({ freq: f, dur: 0.25, gain: 0.1, type: 'sine', delay: i * 0.09 })); }
   death() { this.noiseBurst({ dur: 2.5, gain: 1, type: 'lowpass', freq: 1500, freqEnd: 40 }); this.tone({ freq: 200, freqEnd: 20, dur: 2, gain: 0.6, type: 'sawtooth' }); }

@@ -12,13 +12,16 @@
 // and boost rings at your altitude.
 import { ChunkBuilder } from './ChunkBuilder.js';
 import { buildGate } from './features/gates.js';
-import { PATH, FLIGHT, WORLD_SCALE, SPACE, tierLevel } from '../config.js';
+import { PATH, FLIGHT, WORLD_SCALE, SPACE, BREAKER, DEG, tierLevel } from '../config.js';
 import { SPACE_PATTERNS } from '../space/patterns.js';
-import { SpaceBuilder } from '../space/bodies.js';
+import { SpaceBuilder, BodyLibrary } from '../space/bodies.js';
+import { spaceMaterials } from '../space/materials.js';
+import { predictCourse } from '../game/LineWatch.js';
 
 const S = WORLD_SCALE; // patterns are authored in base meters, scaled by World
 
 const R = (a, b) => a + (b - a) * Math.random();
+const R_ = R;
 const sign = () => (Math.random() < 0.5 ? -1 : 1);
 
 const PATTERNS = {
@@ -98,9 +101,11 @@ export class PathHazards {
   inOrbit(player) { return !!this.space && player.pos.y > SPACE.hazardFloor; }
 
   reset() {
+    for (const d of this.items || []) this.world.removeDynamic(d);
     this.flown = 0;
     this.next = PATH.firstAfter;
     this.items = [];
+    this.breakers = [];   // live line breakers (HUD markers): absolute x, y, z, radius
     this.spawned = 0;
   }
 
@@ -121,10 +126,104 @@ export class PathHazards {
     for (let i = this.items.length - 1; i >= 0; i--) {
       const d = this.items[i];
       const rx = d.centerX - ax, rz = d.centerZ - az;
-      if (rx * f.x + rz * f.z < -(d.reach + 900 * S) || Math.hypot(rx, rz) > 14000 * S) {
+      // breakers sit on curved courses: keep them until they are far away, not just "behind"
+      const behind = rx * f.x + rz * f.z < -(d.reach + 900 * S), dist = Math.hypot(rx, rz);
+      if (d.breaker ? (behind && dist > 2500 * S) || dist > 8000 * S : behind || dist > 14000 * S) {
         w.removeDynamic(d); this.items.splice(i, 1);
       }
     }
+    // line breakers rise out of the ground / materialize in the air (masks the pop-in)
+    for (const d of this.items) {
+      const r = d.rise;
+      if (!r || r.t >= r.dur) continue;
+      r.t = Math.min(r.dur, r.t + dt);
+      const k = r.t / r.dur, s = Math.max(0.02, 1 - Math.pow(1 - k, 3));
+      if (r.floating) { d.group.scale.setScalar(S * s); d.group.position.y = r.y * (1 - s); }
+      else d.group.scale.y = S * s;
+    }
+    // a breaker stays marked until you've passed it (or it's gone)
+    const fy = player.forward?.y ?? 0;
+    if (this.breakers.length) this.breakers = this.breakers.filter((b) => this.items.includes(b.item)
+      && (b.x - ax) * f.x + (b.z - az) * f.z + (b.y - player.pos.y) * fy > -b.r);
+  }
+
+  /** shaders for the floating breaker rocks (compiled up front by Game.warmup) */
+  breakerKit() {
+    if (!this.kit) this.kit = { lib: new BodyLibrary(23), mat: spaceMaterials(this.world) };
+    return this.kit;
+  }
+  warmupBreaker(pos) {
+    const k = this.breakerKit(), b = new SpaceBuilder(pos.x / S, pos.z / S);
+    b.addBody(k.lib.pick('rock'), { x: pos.x / S, y: pos.y / S, z: pos.z / S - 20, radius: 2, collide: false });
+    const g = b.bake(k.mat);
+    g.scale.setScalar(S); g.position.set(pos.x, 0, pos.z);
+    return g;
+  }
+
+  /**
+   * Line breaker: an obstacle right where the course you've been holding
+   * (see LineWatch) takes you, BREAKER.lead seconds from now. Ground rocks in
+   * the obstacle band, floating rocks above it and in orbit.
+   */
+  spawnBreaker(player, difficulty, course, kind = null) {
+    const w = this.world, B = BREAKER, v = player.speed;
+    if (!(v > 0)) return null;
+    const lead = B.lead[0] + (B.lead[1] - B.lead[0]) * difficulty;
+    const [px, py, pz, ph] = predictCourse(player.pos.x + w.origin.x, player.pos.y, player.pos.z + w.origin.z,
+      player.heading, player.pitch, course.rate, v, player.drift || 0, lead, FLIGHT.minAltitude, FLIGHT.ceiling);
+    const R = Math.min(B.radius[1], Math.max(B.radius[0], v * lead * Math.sin(B.coverDeg * DEG)));
+    const fx = -Math.sin(ph), fz = -Math.cos(ph), rx = Math.cos(ph), rz = -Math.sin(ph);
+    const floating = py > FLIGHT.obstacleBand;
+    // a curtain needs room to go over or under it
+    const roomV = py + 2.4 * R < FLIGHT.ceiling || py - 2.4 * R > FLIGHT.minAltitude + 200;
+    if (!kind) {
+      const opts = Object.entries(B.patterns).filter(([k]) => k !== 'curtain' || (floating && roomV));
+      let t = Math.random() * opts.reduce((a, o) => a + o[1], 0);
+      kind = opts[0][0];
+      for (const [k, wt] of opts) if ((t -= wt) <= 0) { kind = k; break; }
+    }
+    if (kind === 'curtain' && !(floating && roomV)) kind = 'block';
+    // rocks: [side offset (m, right of the course), up offset (m), radius (m)]
+    const rocks = [[R * R_(-0.15, 0.15), R * R_(-0.15, 0.15), R]];
+    if (kind === 'fork') {
+      const s = sign(), r2 = R * 0.8;
+      rocks.push([s * (R + r2 + B.forkGap * R), R * R_(-0.2, 0.2), r2]);
+    } else if (kind === 'curtain') {
+      rocks.length = 0;
+      const r = R * 0.8, dy = R * R_(-0.25, 0.25);
+      for (let k = -3; k <= 3; k++) rocks.push([k * 2.05 * r, dy + r * R_(-0.1, 0.1), r]);
+    }
+    const cx = px / S, cz = pz / S;
+    let b, item;
+    if (floating) {
+      const kit = this.breakerKit();
+      b = new SpaceBuilder(cx, cz);
+      for (const [side, up, r] of rocks) {
+        b.addBody(kit.lib.pick('rock'), { x: cx + (rx * side) / S, y: (py + up) / S, z: cz + (rz * side) / S, radius: r / S,
+          color: 0x1a1c1f, spin: [R_(-1, 1), R_(-1, 1), R_(-1, 1), R_(0.1, 0.35)], tag: 'rock' });
+      }
+      item = w.addDynamic(b, (rocks.length > 1 ? 9 : 2) * R / S, kit.mat);
+    } else {
+      b = new ChunkBuilder(0, 0, 1);
+      b.centerX = cx; b.centerZ = cz;
+      for (const [side, , r] of rocks) {
+        const big = r / S > 45;
+        b.addRock(w.rocks.pick(big ? 'peak' : 'spire', Math.random), {
+          x: cx + (rx * side) / S, z: cz + (rz * side) / S, radius: r / S,
+          height: Math.max(py * 1.5 + 900, r * 2.4) / S, rotY: R_(0, 6.28), color: 0x17191c, tag: big ? 'mountain' : 'rock',
+        });
+      }
+      item = w.addDynamic(b, 4 * R / S);
+    }
+    item.breaker = true;
+    item.rise = { t: 0, dur: B.rise, floating, y: floating ? py : 0 };
+    if (floating) { item.group.scale.setScalar(S * 0.02); item.group.position.y = py * 0.98; } else item.group.scale.y = S * 0.02;
+    this.items.push(item);
+    // the regular path events give the breaker room
+    this.next = Math.max(this.next, this.flown + v * 1.2);
+    const marker = { x: px, y: py, z: pz, r: R, item, kind, course: course.kind, fx, fz };
+    this.breakers.push(marker);
+    return marker;
   }
 
   pickPattern(tier, difficulty, weights = PATH.patterns, table = PATTERNS) {

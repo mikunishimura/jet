@@ -268,6 +268,7 @@ export class HUD {
       if (th && th === g.counter.worst) this.label(ctx, `${th.tti.toFixed(1)}s`, pr.x + k + 4 * dpr, pr.y + 4 * dpr, RED);
     }
     this.drawThreats(ctx, W, H, dpr, t);
+    this.drawBreakers(ctx, cam, W, H, dpr, focal, t);
 
     // --- detection: rounded red boxes
     const w = g.weapons;
@@ -411,6 +412,30 @@ export class HUD {
     const s = 7 * this.dpr;
     this.stroke(ctx, RED, 2, () => { ctx.beginPath(); ctx.moveTo(-s * 0.6, -s); ctx.lineTo(s * 0.4, 0); ctx.lineTo(-s * 0.6, s); });
     ctx.restore();
+  }
+
+  /** line breakers: red corner brackets + time to contact (off screen: an edge chevron) */
+  drawBreakers(ctx, cam, W, H, dpr, focal, t) {
+    const g = this.game, p = g.player, o = g.world.origin;
+    for (const b of g.hazards.breakers) {
+      _w.set(b.x - o.x, b.y, b.z - o.z);
+      const pr = this.project(_w, cam);
+      if (pr.behind || pr.x < 0 || pr.x > W || pr.y < 0 || pr.y > H) { this.edgeChevron(ctx, _w, cam, W, H); continue; }
+      const dist = _w.distanceTo(p.pos), ttc = dist / Math.max(1, p.speed);
+      const size = Math.max(14 * dpr, (b.r * focal) / Math.max(1, pr.depth)) + 6 * dpr;
+      const k = Math.min(size * 0.4, 12 * dpr), urgent = ttc < 1.2;
+      if (urgent && Math.sin(t * 30) < -0.2) continue;   // ~5 Hz blink in the last second
+      this.stroke(ctx, RED, urgent ? 2.4 : 1.6, () => {
+        ctx.beginPath();
+        for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+          const cx = pr.x + sx * size, cy = pr.y + sy * size;
+          ctx.moveTo(cx - sx * k, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy - sy * k);
+        }
+      });
+      ctx.save(); ctx.textAlign = 'left';
+      this.label(ctx, `${ttc.toFixed(1)}s`, pr.x + size + 5 * dpr, pr.y + 4 * dpr, RED);
+      ctx.restore();
+    }
   }
 
   drawAltimeter(ctx, W, H, dpr) {
