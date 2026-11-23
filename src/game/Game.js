@@ -754,7 +754,8 @@ export class Game {
     const g = this;
     return {
       setTier(n) { const s = g.player.speedSys; s.engaged = true; s.tier = Math.max(1, Math.min(5, n)); s.speed = TIERS[s.tier - 1].speed; g.fx.tierUp(s.tier); },
-      spawn(kind) { g.enemies.spawnWave(kind, 0.5); },
+      /** side: 'front' | 'left' | 'right' (default random) */
+      spawn(kind, side) { return g.enemies.spawnWave(kind, 0.5, side); },
       gate() { g.onPlayerEvent('trigger', { type: 'gate' }); },
       pickup() { return !!g.pickups.spawn('repair'); },
       god(on = true) { g.god = on; },

@@ -296,7 +296,7 @@ export const AIM = {
   assistCone: 14 * DEG,     // minigun leads a target only this close to the crosshair (set from autoCone / manualCone)
   autoAim: true,            // settings: controls.autoAim
   autoFire: true,           // settings: controls.autoFire. Gun, lock-on missiles and flares fire by themselves
-  autoCone: 20 * DEG,       // auto-fire: the gun opens up on enemies this far from the crosshair (tracking them is your job)
+  autoCone: 12 * DEG,       // auto-fire: the gun opens up on enemies this far from the crosshair (tracking them is your job)
   manualCone: 14 * DEG,     // auto-aim off: classic assist
 };
 
@@ -358,6 +358,7 @@ export const DIRECTOR = {
   intervalEnd: 5.5,
   rampTime: 240,           // seconds to reach max difficulty from time
   rampDistance: 120000 * WORLD_SCALE, // meters from spawn to reach max difficulty from distance
+  flank: [0.35, 0.6],      // chance a wave comes from your left / right instead of ahead (easy .. max difficulty)
   maxEnemiesStart: 3,
   maxEnemiesEnd: 10,
   pickupInterval: [18, 32],

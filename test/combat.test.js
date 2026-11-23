@@ -185,9 +185,9 @@ test('breakState: fresh only for breakFresh seconds after the turn starts', () =
   assert.ok(fresh > THREATS.breakFresh * 0.7 && fresh <= THREATS.breakFresh + 2 * DT, `fresh for ${fresh.toFixed(2)} s`);
 });
 
-test('aim quality: 2x on center, falling to 0.3x at the 20 deg cone', () => {
+test('aim quality: 2x on center, falling to 0.3x at the 12 deg cone', () => {
   const Q = WEAPONS.aimQuality, cone = AIM.autoCone;
-  assert.equal(cone, 20 * DEG);
+  assert.equal(cone, 12 * DEG);
   assert.equal(aimDamage(0), Q.critMult);
   assert.equal(aimDamage(Q.crit), Q.critMult);
   assert.ok(Math.abs(aimDamage(Q.crit + 1e-6) - Q.full) < 1e-3, 'just off center: full damage');
@@ -281,5 +281,28 @@ test('the gun hits where you aim, wherever the nose points (real frame order, hy
   for (const deg of [0, 60, 90, -90, 135]) {
     const r = hitRate(deg);
     assert.ok(r > 0.9, `enemy ${deg} deg off the nose: ${(r * 100).toFixed(0)}% hit`);
+  }
+});
+
+test('flank waves: they come in from your left / right, ahead waves from the front', async () => {
+  const { EnemyManager } = await import('../src/enemies/Enemies.js');
+  const { Player } = await import('../src/game/Player.js');
+  const player = new Player(() => {}); player.heading = 0.8; player.updateBasis();
+  const g = { player, scene: new THREE.Scene(), hud: { toast() {} }, audio: { alarm() {} }, difficulty: 0 };
+  g.enemies = new EnemyManager(g);
+  const bearing = (e) => {   // deg from the nose, + = right
+    const d = e.pos.clone().sub(player.pos);
+    return Math.atan2(d.dot(player.right), d.dot(player.flatForward)) / DEG;
+  };
+  for (const [side, lo, hi] of [['left', -120, -60], ['right', 60, 120], ['front', -20, 20]]) {
+    g.enemies.reset();
+    assert.equal(g.enemies.spawnWave('drones', 0.5, side), side);
+    for (const e of g.enemies.list) {
+      const b = bearing(e);
+      assert.ok(b > lo && b < hi, `${side}: drone at ${b.toFixed(0)} deg`);
+      // closing in from that side
+      const closing = -e.rv.dot(e.pos.clone().sub(player.pos).normalize());
+      assert.ok(closing > 300, `${side}: closing at ${closing.toFixed(0)} m/s`);
+    }
   }
 });

@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { ufoMesh, droneMesh, fighterMesh } from './meshes.js';
 import { explosion } from '../render/Particles.js';
-import { WEAPONS } from '../config.js';
+import { WEAPONS, DIRECTOR } from '../config.js';
 
 const _v = new THREE.Vector3();
 const _d = new THREE.Vector3();
@@ -33,9 +33,11 @@ class Enemy {
     this.flash = 0;
     this.leaving = false;
     this.lockAngle = 9; this.dist = 1e9;
-    // world-fixed frame (see header): where "ahead" and "right" are for this enemy
-    this.F = game.player.flatForward.clone();
-    this.R = game.player.right.clone();
+    // world-fixed frame (see header): where "ahead" and "right" are for this enemy.
+    // Flank waves turn it: bearing +90 deg = the wave comes from your left, -90 from your right.
+    const h = game.player.heading + (game.enemies?.bearing || 0);
+    this.F = new THREE.Vector3(-Math.sin(h), 0, -Math.cos(h));
+    this.R = new THREE.Vector3(Math.cos(h), 0, -Math.sin(h));
     // body materials that can flash white when hit (labMaterial's uFlash)
     this.flashMats = [];
     mesh.traverse((o) => { if (o.material?.uniforms?.uFlash) this.flashMats.push(o.material); });
@@ -143,9 +145,9 @@ export class Ufo extends Enemy {
   constructor(game, spawnAhead, side) {
     super(game, ufoMesh(), { hp: 280, radius: 17, score: 300, name: 'UFO' });
     const p = game.player;
-    this.pos.copy(p.pos).addScaledVector(p.flatForward, spawnAhead).addScaledVector(p.right, side);
+    this.pos.copy(p.pos).addScaledVector(this.F, spawnAhead).addScaledVector(this.R, side);
     this.pos.y = p.pos.y + 64;
-    this.rv.copy(p.flatForward).multiplyScalar(-500); // drifts in from ahead
+    this.rv.copy(this.F).multiplyScalar(-500); // drifts in from its side
     this.fireT = 2.5 + Math.random();
     this.phase = Math.random() * 10;
     this.stay = 20 + Math.random() * 8;
@@ -181,9 +183,9 @@ export class Drone extends Enemy {
   constructor(game, spawnAhead, side, alt, kamikaze, slot) {
     super(game, droneMesh(), { hp: 36, radius: 6, score: 80, name: 'DRONE' });
     const p = game.player;
-    this.pos.copy(p.pos).addScaledVector(p.flatForward, spawnAhead).addScaledVector(p.right, side);
+    this.pos.copy(p.pos).addScaledVector(this.F, spawnAhead).addScaledVector(this.R, side);
     this.pos.y = Math.max(14, alt - 26 + p.pos.y);
-    this.rv.copy(p.flatForward).multiplyScalar(-700); // closing head-on
+    this.rv.copy(this.F).multiplyScalar(-700); // closing in from its side
     this.kamikaze = kamikaze;
     this.slot = slot;
     this.mode = 'rush';
@@ -241,13 +243,13 @@ export class Fighter extends Enemy {
     this.fromBehind = fromBehind;
     const side = (Math.random() - 0.5) * 500;
     if (fromBehind) {
-      this.pos.copy(p.pos).addScaledVector(p.flatForward, -1100).addScaledVector(p.right, side);
-      this.rv.copy(p.flatForward).multiplyScalar(300);
+      this.pos.copy(p.pos).addScaledVector(this.F, -1100).addScaledVector(this.R, side);
+      this.rv.copy(this.F).multiplyScalar(300);
       this.mode = 'overtake';
       game.hud.toast('BOGEY ON YOUR SIX', 'warn');
     } else {
-      this.pos.copy(p.pos).addScaledVector(p.flatForward, 4200).addScaledVector(p.right, side);
-      this.rv.copy(p.flatForward).multiplyScalar(-900);
+      this.pos.copy(p.pos).addScaledVector(this.F, 4200).addScaledVector(this.R, side);
+      this.rv.copy(this.F).multiplyScalar(-900);
       this.mode = 'joust';
     }
     this.pos.y = Math.max(20, p.pos.y + 30 + Math.random() * 30);
@@ -285,8 +287,9 @@ export class Fighter extends Enemy {
     this.faceVelocity(true, 0.004);
     if (this.mode !== 'joust') {
       // keep nose pointing forward-ish (same direction as player) while dogfighting
-      this.mesh.lookAt(_v.copy(this.pos).sub(this.F).sub(_d.subVectors(this.vel, p.vel).multiplyScalar(0.004)));
-      this.mesh.rotateZ(-_d.dot(this.R) * 0.6);
+      // on station it flies alongside you: nose along your travel (looks only)
+      this.mesh.lookAt(_v.copy(this.pos).sub(p.flatForward).sub(_d.subVectors(this.vel, p.vel).multiplyScalar(0.004)));
+      this.mesh.rotateZ(-_d.dot(p.right) * 0.6);
     }
     const b = this.mesh.userData.burner;
     b.scale.z = 0.8 + Math.random() * 0.5;
@@ -307,8 +310,19 @@ export class EnemyManager {
   constructor(game) { this.game = game; this.list = []; this.nextId = 1; }
   reset() { for (const e of this.list) e.dispose(); this.list.length = 0; }
   add(e) { e.id = this.nextId++; this.list.push(e); return e; }
-  spawnWave(kind, difficulty) {
+  /**
+   * side: 'front' | 'left' | 'right' (default: random, flank waves more likely
+   * deeper into the run, DIRECTOR.flank). A flank wave is laid out in a frame
+   * turned 90 deg, so it comes in from that side and keeps fighting there.
+   */
+  spawnWave(kind, difficulty, side = null) {
     const g = this.game;
+    if (!side) {
+      const [lo, hi] = DIRECTOR.flank;
+      side = Math.random() < lo + (hi - lo) * difficulty ? (Math.random() < 0.5 ? 'left' : 'right') : 'front';
+    }
+    this.bearing = { front: 0, left: Math.PI / 2, right: -Math.PI / 2 }[side] ?? 0;
+    const from = side === 'front' ? '' : ` · ${side.toUpperCase()}`;
     if (kind === 'drones') {
       const n = 3 + Math.round(difficulty * 4);
       const side = (Math.random() - 0.5) * 500;
@@ -316,18 +330,20 @@ export class EnemyManager {
         const slot = i - (n - 1) / 2;
         this.add(new Drone(g, 2800 + Math.abs(slot) * 80, side + slot * 50, 34 + Math.random() * 20, Math.random() < 0.25 + difficulty * 0.25, slot));
       }
-      g.hud.toast(`DRONE SWARM ×${n}`, 'danger');
+      g.hud.toast(`DRONE SWARM ×${n}${from}`, 'danger');
     } else if (kind === 'ufo') {
       const n = difficulty > 0.6 && Math.random() < 0.5 ? 2 : 1;
       for (let i = 0; i < n; i++) this.add(new Ufo(g, 3400 + i * 400, (Math.random() - 0.5) * 900));
-      g.hud.toast(n > 1 ? 'UNIDENTIFIED CRAFT ×2' : 'UNIDENTIFIED CRAFT', 'danger');
+      g.hud.toast(`${n > 1 ? 'UNIDENTIFIED CRAFT ×2' : 'UNIDENTIFIED CRAFT'}${from}`, 'danger');
     } else if (kind === 'fighters') {
       const n = 1 + (difficulty > 0.45 ? 1 : 0) + (difficulty > 0.85 ? 1 : 0);
-      const behind = Math.random() < 0.35;
+      const behind = side === 'front' && Math.random() < 0.35;
       for (let i = 0; i < n; i++) this.add(new Fighter(g, behind));
-      if (!behind) g.hud.toast(n > 1 ? `FIGHTERS ×${n} HEAD-ON` : 'FIGHTER HEAD-ON', 'danger');
+      if (!behind) g.hud.toast(`${n > 1 ? `FIGHTERS ×${n}` : 'FIGHTER'}${side === 'front' ? ' HEAD-ON' : from}`, 'danger');
     }
+    this.bearing = 0;
     g.audio.alarm();
+    return side;
   }
   update(dt) {
     for (let i = this.list.length - 1; i >= 0; i--) {
