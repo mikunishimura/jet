@@ -309,11 +309,13 @@ export class Game {
     switch (type) {
       case 'launch':
         this.audio.launch();
+        this.audio.engineSurge();
         if (!this.attract) this.hud.toast('ENGINES ENGAGED', 'info');
         break;
       case 'tierUp': {
         const t = TIERS[e.tier - 1];
         this.fx.tierUp(e.tier);
+        this.audio.engineSurge();   // loud now, settling to cruise a few seconds later
         if (isMilestone(e.tier)) this.audio.boost(e.tier); else this.audio.machPop(e.tier);
         this.hud.slam(`MACH ${(t.speed * MACH_FACTOR).toFixed(1)}`, `${t.roman} · ${t.name}`);
         this.stats.maxTier = Math.max(this.stats.maxTier, e.tier);

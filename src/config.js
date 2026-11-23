@@ -320,6 +320,19 @@ export const BLOOM = {
   spreadK: 5,           // spread multiplier at full bloom
 };
 
+// Engine surge (src/audio/EngineSurge.js): the engine is loud when the jet is
+// accelerating (a Mach increase, a launch, charging toward the next barrier)
+// and settles to a quieter cruise a few seconds later. A relative gain on the
+// engine only (not wind / effects), on top of the user's volume.
+export const ENGINE_SURGE = {
+  floor: 0.35,          // cruise gain once settled (~ -9 dB)
+  hold: 2.0,            // s at full after a Mach increase / launch
+  settle: 2.6,          // s time constant of the glide down to cruise
+  rise: 0.25,           // s time constant back up when you accelerate
+  accelFull: 0.3,       // relative acceleration (1/s, dv/dt / v) that counts as full surge
+  charge: 0.5,          // barrier charge adds up to this much, x charge^2 (a crescendo into the next Mach)
+};
+
 export const WEAPONS = {
   // heavier, slower rounds (was 26/s × 6 dmg); the barrels cool and unjam fast
   minigun: { rate: 11, speed: 11000, damage: 14, spread: 0.004, heatPerShot: 0.011, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 3500, // reaches anything that comes to fight (UFOs arrive from 3.4 km)

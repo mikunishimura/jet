@@ -3,6 +3,7 @@
 // cues modeled on measured reference sounds (game-shader-style.md).
 import { boostEvents } from '../render/Juice.js';
 import { tierLevel } from '../config.js';
+import { EngineSurge } from './EngineSurge.js';
 
 // Engine sound presets (settings: audio.engineSound; 'auto' follows the skin's `engine`):
 //   jet  the original: two detuned saw/square oscillators through a lowpass + a noise roar
@@ -23,7 +24,11 @@ export class Audio {
     this.air = 1; // 1 = sea level .. 0 = vacuum (space flight): wind and roar fade, the engine goes muffled
     this.hostile = 0; // 0..1 hostile band: a low, throbbing structural rumble
     this.engine = 'jet'; // active engine preset (ENGINE_PRESETS)
+    this.surge = new EngineSurge(); // loud while accelerating, quieter cruise after
   }
+
+  /** a Mach increase / launch: the engine surges, then settles to cruise a few seconds later */
+  engineSurge() { this.surge.kick(); }
 
   /** switch the engine sound preset (crossfades; safe before init) */
   setEngine(name) {
@@ -73,8 +78,10 @@ export class Audio {
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
 
     // each engine preset plays into its own bus; setEngine crossfades them
-    this.jetBus = ctx.createGain(); this.jetBus.gain.value = this.engine === 'jet' ? 1 : 0; this.jetBus.connect(this.engineBus);
-    this.ionBus = ctx.createGain(); this.ionBus.gain.value = this.engine === 'ion' ? 1 : 0; this.ionBus.connect(this.engineBus);
+    // ... through the surge gain (engine only: wind, riser and rumble bypass it)
+    this.driveGain = ctx.createGain(); this.driveGain.connect(this.engineBus);
+    this.jetBus = ctx.createGain(); this.jetBus.gain.value = this.engine === 'jet' ? 1 : 0; this.jetBus.connect(this.driveGain);
+    this.ionBus = ctx.createGain(); this.ionBus.gain.value = this.engine === 'ion' ? 1 : 0; this.ionBus.connect(this.driveGain);
 
     // --- jet preset: two detuned saws + roar noise
     this.engGain = ctx.createGain(); this.engGain.gain.value = 0;
@@ -178,6 +185,10 @@ export class Audio {
     if (!this.ctx) return;
     const t = this.t, k = 0.08;
     const on = alive ? 1 : 0;
+    // surge: loud while accelerating, a smooth glide down to a quieter cruise after
+    const sdt = this.lastUpdate === undefined ? 0 : Math.min(0.1, t - this.lastUpdate);
+    this.lastUpdate = t;
+    this.driveGain.gain.setTargetAtTime(this.surge.update(sdt, speed01, charge), t, 0.05);
     this.osc1.frequency.setTargetAtTime(45 + speed01 * 90 + (throttle ? 12 : 0), t, k);
     this.osc2.frequency.setTargetAtTime(45.6 + speed01 * 91 + (throttle ? 12 : 0), t, k);
     const air = this.air;
