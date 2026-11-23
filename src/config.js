@@ -440,7 +440,9 @@ export const AMBIENT = {
   breathe: { vignette: 0.07, blur: 0.06 },      // post breathes with engine loudness
   shafts: { alpha: 0.07, count: 7 },            // distant light shafts sliding past
   dust: { rate: 40, life: 1.1 },                // near-field ink dust
-  halos: { strength: 0.32, max: 8, range: 6000 }, // dark auras on threats, pulsing on the beat
+  // dark auras pulsing on the beat: off on enemies (they read as a gray fog; the red
+  // brackets mark them), only a faint one on incoming missiles
+  halos: { enemies: 0, missiles: 0.1, size: 0.03, max: 8, range: 6000 },
 };
 
 export const PALETTE = {

@@ -155,22 +155,23 @@ export class AmbientLayer {
       }
     }
 
-    // --- dark halos on locked enemies and incoming missiles, swelling on the beat
+    // --- dark halos (enemies: off by default; incoming missiles: faint), swelling on the beat
     const H = cfg.halos;
     let k = 0;
-    const strength = H.strength * gate * (0.75 + 0.25 * amb.pulse / Math.max(1e-6, cfg.pulse.amp));
-    const place = (pos, base) => {
-      if (k >= this.halos.length) return;
+    const beat = 0.75 + 0.25 * amb.pulse / Math.max(1e-6, cfg.pulse.amp);
+    const place = (pos, base, amount) => {
+      const strength = amount * gate * beat;
+      if (k >= this.halos.length || strength <= 0.005) return;
       const d = pos.distanceTo(cam.position);
       if (d > H.range) return;
       const h = this.halos[k++];
       h.position.copy(pos);
-      h.scale.setScalar(Math.max(base, d * 0.06) * (1 + 0.2 * amb.pulse / Math.max(1e-6, cfg.pulse.amp)));
+      h.scale.setScalar(Math.max(base, d * H.size) * (1 + 0.2 * amb.pulse / Math.max(1e-6, cfg.pulse.amp)));
       h.material.color.setScalar(strength);
-      h.visible = strength > 0.005;
+      h.visible = true;
     };
-    for (const e of g.enemies.list) if (e.alive) place(e.pos, e.radius * 5);
-    for (const m of g.projectiles.missiles) if (m.owner === 'enemy') place(m.p, 30);
+    if (H.enemies > 0) for (const e of g.enemies.list) if (e.alive) place(e.pos, e.radius * 5, H.enemies);
+    for (const m of g.projectiles.missiles) if (m.owner === 'enemy') place(m.p, 20, H.missiles);
     for (; k < this.halos.length; k++) this.halos[k].visible = false;
   }
 }

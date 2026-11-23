@@ -137,7 +137,7 @@ All numbers are in `JUICE` (`src/config.js`), and the timelines in `src/render/J
 - **Mach in the sky**: the live Mach number, huge and faint, painted ahead of you behind the clouds.
 - **Toward space**: the zenith darkens and stars come out as you climb tiers.
 - **Megastructure**: a colossal wireframe ring rises over the horizon, slowly turning, closer at higher tiers.
-- **Light shafts**, **ink dust** you rush through, **dark halos** on enemies and incoming missiles that swell on the beat, and a slight **breathing** of vignette and blur with engine loudness.
+- **Light shafts**, **ink dust** you rush through, a faint **dark halo** on incoming missiles that swells on the beat (off on enemies: `AMBIENT.halos`), and a slight **breathing** of vignette and blur with engine loudness.
 
 It fades out during the boost negative, follows the `fx.intensity` setting (the beat wave stops with `fx.flashes` off), and `AMBIENT.master = 0` turns it off. Every number is in `AMBIENT` (`src/config.js`).
 
