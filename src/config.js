@@ -292,8 +292,6 @@ export const AIM = {
   maxYaw: 150 * DEG,        // look left/right (can check your six)
   maxPitchUp: 70 * DEG,
   maxPitchDown: 55 * DEG,
-  recenterDelay: 1.6,       // s without mouse movement or firing before easing back to forward
-  recenterRate: 1.8,        // 1/s exponential ease back
   convergence: 1500,        // m: gun streams meet the crosshair ray here when nothing is assisted
   assistCone: 14 * DEG,     // minigun leads a target only this close to the crosshair (set from autoCone / manualCone)
   autoAim: true,            // settings: controls.autoAim

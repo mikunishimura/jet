@@ -5,7 +5,7 @@ import { FLAG_DEFAULTS } from './flags.js';
 
 export const DEFAULTS = {
   audio: { muted: false, master: 0.8, engine: 0.8, sfx: 0.9 },
-  controls: { autoThrottle: true, autoFire: true, autoAim: true, sensitivity: 1.0, invertY: false, autoRecenter: true, recenterDelay: 1.6 },
+  controls: { autoThrottle: true, autoFire: true, autoAim: true, sensitivity: 1.0, invertY: false },
   view: { camera: 'chase', skin: SKIN_IDS[0], fovOffset: 0, renderScale: 1.0, showFps: false },
   fx: { intensity: 1.0, flashes: true, shake: 1.0, blur: 1.0 },
   flags: { space: FLAG_DEFAULTS.space },   // feature flags (URL ?space=off still wins, see core/flags.js)
@@ -14,7 +14,7 @@ export const DEFAULTS = {
 /** allowed ranges / values, used to sanitize anything loaded or set */
 export const LIMITS = {
   'audio.master': [0, 1], 'audio.engine': [0, 1], 'audio.sfx': [0, 1],
-  'controls.sensitivity': [0.2, 3], 'controls.recenterDelay': [0.5, 5],
+  'controls.sensitivity': [0.2, 3],
   'view.fovOffset': [-15, 15], 'view.renderScale': [0.5, 1.5],
   'fx.intensity': [0, 1], 'fx.shake': [0, 1.5], 'fx.blur': [0, 1],
   'view.camera': ['chase', 'cockpit'],

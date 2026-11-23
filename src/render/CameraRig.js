@@ -75,7 +75,7 @@ export class CameraRig {
       const h0 = this.camHeading, p0 = this.camPitch;
       this.camHeading += dh * (1 - Math.exp(-CHASE.yawFollow * dt));
       this.camPitch += (player.pitch * CHASE.pitchShare - this.camPitch) * (1 - Math.exp(-CHASE.pitchFollow * dt));
-      // engaged: the crosshair stays put in the world while the jet maneuvers under it
+      // the aim is the mouse's alone: it stays put in the world while the jet turns under it
       if (aim?.worldLock) aim.hold(this.camHeading - h0, this.camPitch - p0);
       // view = lagged flight direction + instant mouse aim; orbit the jet
       const ay = aim ? aim.yaw : 0, ap = aim ? aim.pitch : 0;

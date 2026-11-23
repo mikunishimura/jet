@@ -1,7 +1,10 @@
 // Mouse aim model. Pure: no DOM, no three.js, unit-testable.
 //
-// yaw/pitch are an OFFSET from the jet's flight direction (radians):
+// yaw/pitch are stored as an offset from the camera's base (radians):
 //   yaw > 0 looks left (same sign as heading), pitch > 0 looks up.
+// While flying, CameraRig calls hold() every frame with the base's turn, so
+// the aim stays fixed in the WORLD: only the mouse moves it, steering never
+// does, and it never drifts back to the nose (Q snaps it back on request).
 // The jet's trajectory never reads this; only the camera and weapons do.
 import { AIM } from '../config.js';
 
@@ -38,7 +41,7 @@ export class Aim {
     } else this.idle += dt;
     if (firing) this.idle = 0;
     if (ctl.recenter) this.snapping = true;
-    const rate = this.snapping ? 14 : this.idle > c.recenterDelay ? c.recenterRate : 0;
+    const rate = this.snapping ? 14 : 0;   // only on request (Q / middle mouse)
     if (rate) {
       const k = Math.exp(-rate * dt);
       this.yaw *= k; this.pitch *= k;

@@ -24,16 +24,26 @@ test('aim is clamped to the look limits', () => {
   assert.equal(a.pitch, -AIM.maxPitchDown);
 });
 
-test('aim holds while you are looking or firing, then eases back to forward', () => {
+test('the aim never drifts back to the nose on its own', () => {
   const a = new Aim();
   a.update(DT, { lookX: -300 });
   const y0 = a.yaw;
-  for (let t = 0; t < AIM.recenterDelay * 0.8; t += DT) a.update(DT, {});
-  assert.equal(a.yaw, y0, 'no drift before the idle delay');
-  for (let t = 0; t < 5; t += DT) a.update(DT, {}, true);
-  assert.equal(a.yaw, y0, 'firing holds the aim');
-  for (let t = 0; t < AIM.recenterDelay + 3; t += DT) a.update(DT, {});
-  assert.ok(Math.abs(a.yaw) < 0.01, `eased back: ${a.yaw}`);
+  for (let t = 0; t < 30; t += DT) a.update(DT, {});
+  assert.equal(a.yaw, y0, 'only the mouse (or Q) moves it');
+});
+
+test('steering never moves the aim: it stays fixed in the world while the jet turns', async () => {
+  const THREE = await import('three');
+  const { CameraRig } = await import('../src/render/CameraRig.js');
+  const { Player } = await import('../src/game/Player.js');
+  const rig = new CameraRig(new THREE.PerspectiveCamera());
+  const p = new Player(() => {});
+  const a = new Aim(); a.worldLock = true;
+  const fx = { shake: 0, fovPunch: 0, prefs: {} };
+  rig.update(DT, p, fx, a);
+  const before = rig.aimDir.clone();
+  for (let t = 0; t < 2; t += DT) { p.heading += 0.6 * DT; p.updateBasis(); rig.update(DT, p, fx, a); }  // a hard turn
+  assert.ok(rig.aimDir.angleTo(before) < 0.01, `aim swung ${(rig.aimDir.angleTo(before) * 57.3).toFixed(2)} deg with the jet`);
 });
 
 test('Q / middle mouse snaps back quickly', () => {

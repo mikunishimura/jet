@@ -21,8 +21,6 @@ export const SCHEMA = [
     { key: 'controls.autoAim', type: 'toggle', label: 'auto-aim', title: 'the gun finds the enemy nearest your crosshair and locks come easier. off: shots go exactly where you aim' },
     { key: 'controls.sensitivity', type: 'range', label: 'mouse sensitivity', min: 0.2, max: 3, step: 0.05, fmt: (v) => `${v.toFixed(2)}×` },
     { key: 'controls.invertY', type: 'toggle', label: 'invert mouse y' },
-    { key: 'controls.autoRecenter', type: 'toggle', label: 'auto-recenter view' },
-    { key: 'controls.recenterDelay', type: 'range', label: 'recenter after', min: 0.5, max: 5, step: 0.1, fmt: (v) => `${v.toFixed(1)} s` },
   ] },
   { section: 'view', items: [
     { key: 'view.camera', type: 'choice', label: 'camera', options: ['chase', 'cockpit'], hint: 'c' },
@@ -112,9 +110,6 @@ export class SettingsPanel {
         this.root.querySelectorAll(`button.opt[data-key="${it.key}"]`).forEach((b) => b.classList.toggle('on', b.dataset.value === v));
       }
     }
-    // recenter delay only matters when auto-recenter is on
-    const delay = this.root.querySelector('input[data-key="controls.recenterDelay"]');
-    if (delay) delay.disabled = !this.settings.get('controls.autoRecenter');
   }
 
   open(paused) {

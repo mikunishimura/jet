@@ -169,7 +169,6 @@ export class Game {
     AIM.autoFire = v.controls.autoFire;
     this.input.autoThrottle = v.controls.autoThrottle;
     AIM.assistCone = v.controls.autoAim ? AIM.autoCone : AIM.manualCone;
-    AIM.recenterDelay = v.controls.autoRecenter ? v.controls.recenterDelay : Infinity;
     if (this.rig.mode !== v.view.camera) this.rig.setMode(v.view.camera);
     if (this.jet.skinId !== v.view.skin) this.jet.setSkin(v.view.skin);
     FOV.userOffset = v.view.fovOffset;
@@ -626,8 +625,9 @@ export class Game {
     // to the nose, and the crosshair stays fixed in the world as the jet maneuvers
     const engaged = this.weapons.engaged && !!this.weapons.primary;
     if (this.state === 'playing' && !this.attract && !this.useAutopilot && p.alive) {
-      this.aim.update(dt, ctl, ctl.gun || engaged || (!AIM.autoFire && this.weapons.holding));
-      this.aim.worldLock = engaged; // no magnet: tracking a moving enemy is your job
+      // the aim belongs to the mouse alone: steering never moves it, it never drifts back to the nose
+      this.aim.update(dt, ctl);
+      this.aim.worldLock = true;
     } else this.aim.reset();
 
     if (this.flagsPending) this.syncFlags();
