@@ -135,7 +135,9 @@ export class Projectiles {
         const doomed = g.weapons?.doomed;
         for (const e of enemies) {
           if (!e.alive || doomed?.has(e)) continue;   // locked-in: the kill missile has it, rounds fly on
-          if (segSphere(prev, b.p, e.pos, e.radius + 2)) {
+          // sweep relative to the enemy (it moved this frame too): fast or jinking targets can't slip between frames
+          _v.copy(prev).addScaledVector(e.rv, dt);
+          if (segSphere(_v, b.p, e.pos, e.radius + 2)) {
             e.damage(b.damage, b.crit ? 'crit' : 'gun', b.p);
             // flak: the burst also catches anything packed close (not targets a kill missile has)
             if (b.splash) {

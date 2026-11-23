@@ -72,6 +72,13 @@ class Enemy {
     if (hit && isFinite(hit.collider.top)) this.avoidY = Math.min(420, hit.collider.top + 30);
   }
   integrate(dt) {
+    // acceleration estimate (relative to the player), smoothed: the gun leads with it
+    if (!this.acc) { this.acc = new THREE.Vector3(); this.prevRv = this.rv.clone(); }
+    if (dt > 0) {
+      _d.subVectors(this.rv, this.prevRv).divideScalar(dt);
+      this.acc.lerp(_d, 1 - Math.exp(-dt / 0.08));
+      this.prevRv.copy(this.rv);
+    }
     this.avoidTerrain(dt);
     if (this.avoidY > this.pos.y) this.rv.y += Math.min(400, (this.avoidY - this.pos.y) * 4) * dt;
     this.vel.copy(this.game.player.vel).add(this.rv);

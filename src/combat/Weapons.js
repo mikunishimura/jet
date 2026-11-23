@@ -316,7 +316,10 @@ export class Weapons {
         const cand = [r1, r2].filter((x) => x > 0);
         if (cand.length) tau = Math.min(...cand);
       }
-      _dir.copy(rel).addScaledVector(rv, tau).normalize();
+      // lead with velocity AND acceleration (sidesteps), so rounds meet the target where it will be
+      _dir.copy(rel).addScaledVector(rv, tau);
+      if (t.acc) _dir.addScaledVector(t.acc, 0.5 * tau * tau);
+      _dir.normalize();
     } else {
       // no assist: converge on the crosshair ray
       _dir.copy(this.aimPoint(_v)).sub(origin).normalize();

@@ -42,7 +42,8 @@ export class HUD {
     this.el = { stats: $('h-stats'), speed: $('h-speed'), hull: $('h-hullbox'), weapons: $('h-weapons'), log: $('log'), big: $('bigtext') };
     this.last = {};
     this.toastTimes = new Map();
-    this.numbers = [];                  // floating damage numbers
+    this.numbers = [];                  // live damage numbers: one per enemy, stacking while you hit it
+    this.ticker = { value: 0, t: -9, pop: -9, crit: -9, kill: -9 }; // running damage next to the crosshair
     this.hitMark = { t: -9, kill: false };
     this.resize();
     addEventListener('resize', () => this.resize());
@@ -70,15 +71,23 @@ export class HUD {
   damageNumber(e, amount, at, kill, source) {
     const now = this.game.time;
     let n = null;
+    // one number per enemy: every hit (gun, crit, splash, missile) adds to it while you keep hitting
     for (let i = this.numbers.length - 1; i >= 0; i--) {
       const c = this.numbers[i];
-      if (c.e === e && !c.kill && source === 'gun' && c.source === 'gun' && now - c.t0 < 0.4) { n = c; break; }
+      if (c.e === e && !c.kill && now - c.t0 < 0.7) { n = c; break; }
     }
-    if (n) { n.value += amount; n.t0 = now; n.pop = now; n.kill = kill; n.off.subVectors(at, e.pos); }
+    const crit = source === 'crit';
+    if (n) { n.value += amount; n.t0 = now; n.pop = now; n.kill = kill; if (crit) n.crit = now; }
     else {
-      this.numbers.push({ e, value: amount, off: at.clone().sub(e.pos), anchor: at.clone(), t0: now, pop: now, kill, source, side: Math.random() - 0.5 });
+      this.numbers.push({ e, value: amount, anchor: e.pos.clone(), size: 0, t0: now, born: now, pop: now, kill, crit: crit ? now : -9 });
       if (this.numbers.length > 24) this.numbers.shift();
     }
+    // the same hit, right where you're looking: a running total by the crosshair
+    const tk = this.ticker;
+    if (now - tk.t > 0.9) tk.value = 0;
+    tk.value += amount; tk.t = now; tk.pop = now;
+    if (crit) tk.crit = now;
+    if (kill) tk.kill = now;
     this.hitMark = { t: now, kill: kill || this.hitMark.kill && now - this.hitMark.t < 0.1 };
   }
 
@@ -171,6 +180,7 @@ export class HUD {
     const p = g.player, s = p.speedSys;
     if (!p.alive) return;
     const t = g.time;
+    this.frameDt = Math.min(0.1, Math.max(0, t - (this.lastT ?? t))); this.lastT = t;
     const focal = H / (2 * Math.tan((cam.fov * DEG) / 2));
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
@@ -316,9 +326,13 @@ export class HUD {
         ctx.restore();
         this.label(ctx, `${Math.round(e.dist)} m`, pr.x - size, pr.y + size + 13 * dpr, RED);
       }
-      // hairline hp
-      ctx.fillStyle = 'rgba(255,59,48,0.25)'; ctx.fillRect(pr.x - size, pr.y - size - 5 * dpr, size * 2, 1.5 * dpr);
-      ctx.fillStyle = RED; ctx.fillRect(pr.x - size, pr.y - size - 5 * dpr, size * 2 * Math.max(0, e.hp / e.maxHp), 1.5 * dpr);
+      // hp bar: what's left (red), what you just took off (ink, drains after it), the rest (faint)
+      const hpK = Math.max(0, e.hp / e.maxHp);
+      e.hpGhost = e.hpGhost === undefined ? hpK : Math.max(hpK, e.hpGhost - this.frameDt * 0.9);
+      const by = pr.y - size - 6 * dpr, bh = 2.5 * dpr;
+      ctx.fillStyle = 'rgba(255,59,48,0.22)'; ctx.fillRect(pr.x - size, by, size * 2, bh);
+      ctx.fillStyle = INK; ctx.fillRect(pr.x - size, by, size * 2 * e.hpGhost, bh);
+      ctx.fillStyle = RED; ctx.fillRect(pr.x - size, by, size * 2 * hpK, bh);
       // missile lock-on ring: charges around the target while you track it (slow, then fast)
       const ls = w.lockState.get(e);
       if (ls) {
@@ -345,33 +359,55 @@ export class HUD {
         }
       }
     }
-    this.drawNumbers(ctx, cam, dpr, t);
+    this.drawNumbers(ctx, cam, dpr, t, focal);
+    this.drawTicker(ctx, ap, dpr, t);
 
     this.drawAltimeter(ctx, W, H, dpr);
   }
 
-  /** floating damage numbers: pop on hit, rise, fade; kills are bigger */
-  drawNumbers(ctx, cam, dpr, t) {
+  /**
+   * Live damage numbers: one per enemy, sitting just above its box (clear of
+   * the box, lock ring and hp bar) and growing with every hit while you keep
+   * firing; red with "!" right after a crit. When you stop (or it dies) it
+   * floats up and fades; a kill shows the total with ✕.
+   */
+  drawNumbers(ctx, cam, dpr, t, focal) {
     ctx.save(); ctx.textAlign = 'center'; ctx.lineJoin = 'round';
     for (let i = this.numbers.length - 1; i >= 0; i--) {
       const n = this.numbers[i];
-      const age = t - n.t0, life = n.kill ? 1.3 : 0.85;
+      const age = t - n.t0, life = n.kill ? 1.2 : 0.8;
       if (age > life || age < -1) { this.numbers.splice(i, 1); continue; }
-      if (n.e.alive) n.anchor.copy(n.e.pos).add(n.off);
+      if (n.e.alive) n.anchor.copy(n.e.pos);
       const pr = this.project(n.anchor, cam);
       if (pr.behind) continue;
-      const pop = 1 + 0.7 * Math.exp(-(t - n.pop) * 16);
-      const px = (n.kill ? 22 : 15 + Math.min(8, n.value / 6)) * pop * dpr;
-      const x = pr.x + n.side * 26 * dpr, y = pr.y - (14 + age * 46) * dpr;
-      ctx.globalAlpha = Math.min(1, (life - age) / (life * 0.4));
-      ctx.font = `700 ${px}px "JetBrains Mono", monospace`;
-      const crit = n.source === 'crit';
-      if (crit) ctx.font = `800 ${px * 1.3}px "JetBrains Mono", monospace`;
-      const txt = n.kill ? `${Math.round(n.value)} ✕` : crit ? `${Math.round(n.value)}!` : `${Math.round(n.value)}`;
-      ctx.lineWidth = 3.5 * dpr; ctx.strokeStyle = '#fff'; ctx.strokeText(txt, x, y);
-      ctx.fillStyle = n.kill || crit ? RED : INK; ctx.fillText(txt, x, y);
+      if (n.e.alive) n.size = Math.max(11 * dpr, (n.e.radius * 1.5 * focal) / Math.max(1, pr.depth));
+      const pop = 1 + 0.55 * Math.exp(-(t - n.pop) * 18);
+      const crit = t - n.crit < 0.35;
+      const px = (n.kill ? 24 : 17 + Math.min(9, n.value / 15)) * pop * (crit ? 1.15 : 1) * dpr;
+      const rise = Math.max(0, age - 0.2) * 40 * dpr;          // holds still while hits keep coming
+      const y = pr.y - n.size - 14 * dpr - rise;
+      ctx.globalAlpha = Math.min(1, (life - age) / (life * 0.45));
+      ctx.font = `800 ${px}px "JetBrains Mono", monospace`;
+      const txt = `${Math.round(n.value)}${n.kill ? ' ✕' : crit ? '!' : ''}`;
+      ctx.lineWidth = 4 * dpr; ctx.strokeStyle = '#fff'; ctx.strokeText(txt, pr.x, y);
+      ctx.fillStyle = n.kill || crit ? RED : INK; ctx.fillText(txt, pr.x, y);
     }
     ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  /** running damage total by the crosshair: where your eyes are */
+  drawTicker(ctx, ap, dpr, t) {
+    const tk = this.ticker, age = t - tk.t;
+    if (age > 0.9 || tk.value <= 0 || ap.behind) return;
+    const pop = 1 + 0.5 * Math.exp(-(t - tk.pop) * 20);
+    const hot = t - tk.crit < 0.3 || t - tk.kill < 0.5;
+    ctx.save(); ctx.textAlign = 'left'; ctx.lineJoin = 'round';
+    ctx.globalAlpha = Math.min(1, (0.9 - age) / 0.3);
+    ctx.font = `800 ${15 * pop * dpr}px "JetBrains Mono", monospace`;
+    const txt = `+${Math.round(tk.value)}`, x = ap.x + 20 * dpr, y = ap.y - 12 * dpr;
+    ctx.lineWidth = 3.5 * dpr; ctx.strokeStyle = '#fff'; ctx.strokeText(txt, x, y);
+    ctx.fillStyle = hot ? RED : INK; ctx.fillText(txt, x, y);
     ctx.restore();
   }
 
