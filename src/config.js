@@ -302,7 +302,7 @@ export const AIM = {
 
 export const WEAPONS = {
   // heavier, slower rounds (was 26/s × 6 dmg); the barrels cool and unjam fast
-  minigun: { rate: 11, speed: 11000, damage: 14, spread: 0.004, heatPerShot: 0.011, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 1900,
+  minigun: { rate: 11, speed: 11000, damage: 14, spread: 0.004, heatPerShot: 0.011, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 3500, // reaches anything that comes to fight (UFOs arrive from 3.4 km)
     // spread fire: every enemy in the aimed area (gun cone, in range) gets rounds in turn,
     // except the ones with a kill missile on the way. More targets, faster fire (heat per round
     // shrinks to match): x(1 + multiRate * (n - 1)), n capped at multiMax.
@@ -311,7 +311,8 @@ export const WEAPONS = {
     splash: 45, splashShare: 0.4 },
   missiles: { salvo: 4, stagger: 0.07, max: 8, reload: 1.4, speed: 750, accel: 900, turnRate: 4.2, damage: 70, splash: 70, life: 6 },
   // a hard lock is a kill: one hypersonic missile per locked target, out in a quick ripple
-  lockedMissile: { speed: 5200, accel: 60000, turnRate: 40, stagger: 0.035, prox: 30, life: 3 },
+  // turnRate is high on purpose: at 5.2 km/s a slower turn means a 130 m circle around the target (it orbits, never hits)
+  lockedMissile: { speed: 5200, accel: 60000, turnRate: 400, stagger: 0.035, prox: 30, life: 3 },
   // enemies on station sidestep at random moments, so the crosshair never just
   // sits on them: tracking is the aim skill. Offsets (m) on top of each
   // enemy's weave, re-rolled every `every` seconds; scaled up with difficulty.
@@ -319,7 +320,7 @@ export const WEAPONS = {
   // loose lock: chance the target jinks out of the missile's way at the last moment
   evade: { DRONE: 0.25, UFO: 0.5, FIGHTER: 0.75 },
   lockCone: 42 * DEG,      // detection: red boxes, gun aim-assist candidates
-  lockRange: 2400,
+  lockRange: 3500,
   // aim quality: gun damage by crosshair error (beyond the target's own size).
   // On center is a critical hit; it falls off to `edge` at the gun cone.
   aimQuality: { crit: 2 * DEG, critMult: 2, full: 1, edge: 0.3 },

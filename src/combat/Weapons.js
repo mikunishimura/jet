@@ -225,7 +225,12 @@ export class Weapons {
       this.reload += dt;
       if (this.reload >= M.reload) { this.reload = 0; this.missiles++; }
     }
-    for (const e of this.doomed) if (!e.alive) this.doomed.delete(e);
+    // a target stays "locked-in" (the gun leaves it alone) only while its kill missile is still flying
+    for (const e of this.doomed) {
+      const flying = g.projectiles?.missiles.some((m) => m.kill && m.owner === 'player' && m.target === e);
+      const queued = this.salvoQueue.some((q) => q.target === e);
+      if (!e.alive || (!flying && !queued)) this.doomed.delete(e);
+    }
     // auto: always tracking, every completed lock fires at once.
     // manual: holding the gun (or the missile key) builds locks, releasing fires them.
     const hold = auto || !!(ctl.gun || ctl.missileHold);

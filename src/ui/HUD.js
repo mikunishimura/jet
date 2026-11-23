@@ -314,6 +314,8 @@ export class HUD {
       if (pr.behind || pr.x < 0 || pr.x > W || pr.y < 0 || pr.y > H) { this.edgeChevron(ctx, e.pos, cam, W, H); continue; }
       const size = Math.max(11 * dpr, (e.radius * 1.5 * focal) / Math.max(1, pr.depth));
       const locked = w.locks.includes(e), primary = w.primary === e;
+      // a kill missile is on its way: say so (the gun leaves it to the missile meanwhile)
+      if (w.doomed.has(e)) { ctx.save(); ctx.textAlign = 'center'; this.label(ctx, '◆ kill missile', pr.x, pr.y - size - 12 * dpr, RED); ctx.restore(); }
       const rr = Math.min(size * 0.45, 8 * dpr);
       this.stroke(ctx, RED, primary ? 2.2 : locked ? 1.6 : 1.1, () => { ctx.beginPath(); ctx.roundRect(pr.x - size, pr.y - size, size * 2, size * 2, rr); });
       if (primary) {

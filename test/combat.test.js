@@ -306,3 +306,24 @@ test('flank waves: they come in from your left / right, ahead waves from the fro
     }
   }
 });
+
+test('locked-in only while its kill missile flies: a spent missile hands the target back to the gun', async () => {
+  const { Weapons } = await import('../src/combat/Weapons.js');
+  const e = { alive: true, pos: new THREE.Vector3(0, 0, -800), radius: 17, name: 'UFO' };
+  const missiles = [];
+  const g = { player: { alive: true, pos: new THREE.Vector3(), forward: new THREE.Vector3(0, 0, -1), vel: new THREE.Vector3() },
+    enemies: { list: [e] }, projectiles: { missiles }, audio: { lockOn() {}, lockTick() {}, click() {} }, hud: { toast() {} },
+    rig: { aimDir: new THREE.Vector3(1, 0, 0), aimOffset: new THREE.Vector3() } };   // aim elsewhere: no new lock
+  const w = new Weapons(g);
+  w.doomed.add(e);
+  missiles.push({ owner: 'player', kill: true, target: e });
+  w.update(DT, {});
+  assert.ok(w.doomed.has(e), 'missile in flight: locked-in');
+  missiles.length = 0;                       // it detonated / burned out and the target lived
+  w.update(DT, {});
+  assert.ok(!w.doomed.has(e), 'back to the gun');
+});
+
+test('kill missiles hit fast, weaving targets (no orbiting)', () => {
+  assert.ok(WEAPONS.lockedMissile.speed / WEAPONS.lockedMissile.turnRate < 20, 'turn circle under 20 m');
+});

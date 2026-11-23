@@ -224,7 +224,13 @@ export class Projectiles {
       let boom = m.life <= 0 || m.p.y < 1;
       if (!boom && tgtPos && m.p.distanceTo(tgtPos) < m.prox) boom = true;
       if (!boom && m.owner === 'player') {
-        for (const e of enemies) if (e.alive && segSphere(prev, m.p, e.pos, e.radius + 4)) { boom = true; break; }
+        // swept, relative to each enemy's own motion this frame (a missile covers ~90 m per frame)
+        for (const e of enemies) {
+          if (!e.alive) continue;
+          _a.copy(prev); if (km) _a.addScaledVector(e.rv, dt);
+          const r = e === m.target ? m.prox + e.radius : e.radius + 4;
+          if (segSphere(_a, m.p, e.pos, r)) { boom = true; if (e === m.target) m.p.copy(e.pos); break; }
+        }
       }
       if (!boom && (i & 1) === (g.frame & 1) && this.hitsWorld(m.p)) boom = true;
       if (boom) { this.detonate(m); this.missiles.splice(i, 1); }
