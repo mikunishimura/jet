@@ -256,12 +256,6 @@ export class HUD {
         this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(AIM.autoAim ? WEAPONS.lock.autoMargin : WEAPONS.lock.margin) * focal, 0, Math.PI * 2); });
         ctx.setLineDash([]); ctx.globalAlpha = 1;
       }
-      // aimed at an enemy the gun can't reach yet: say so, small
-      if (pt && pt.dist > WEAPONS.minigun.range * 1.05) {
-        ctx.save(); ctx.textAlign = 'center'; ctx.globalAlpha = 0.75;
-        this.label(ctx, `out of range ${(pt.dist / 1000).toFixed(1)} km`, ap.x, ap.y + r + tick + 14 * dpr, INK2);
-        ctx.restore();
-      }
     }
     // hint until the mouse is captured
     if (g.state === 'playing' && !g.attract && !g.useAutopilot && !g.input.locked && !g.touch?.enabled) {
@@ -321,6 +315,11 @@ export class HUD {
     this.drawBreakers(ctx, cam, W, H, dpr, focal, t);
 
     const w = g.weapons;
+    // the enemy you're aiming at but the gun can't reach yet: it gets a TOO FAR tag
+    let tooFar = null;
+    for (const e of w.detected) {
+      if (e.dist > WEAPONS.minigun.range * 1.05 && (e.aimErr ?? Infinity) < AIM.assistCone && (!tooFar || e.aimErr < tooFar.aimErr)) tooFar = e;
+    }
     // --- detection: thin red corner brackets (bolder on what the gun is working on)
     for (const e of w.detected) {
       const pr = this.project(e.pos, cam);
@@ -329,6 +328,15 @@ export class HUD {
       const locked = w.locks.includes(e), primary = w.primary === e;
       // a kill missile is on its way: say so (the gun leaves it to the missile meanwhile)
       if (w.doomed.has(e)) { ctx.save(); ctx.textAlign = 'center'; this.label(ctx, '◆ kill missile', pr.x, pr.y - size - 12 * dpr, RED); ctx.restore(); }
+      // aimed at, but beyond gun range: a small tag on top of it
+      else if (e === tooFar) {
+        ctx.save(); ctx.textAlign = 'center';
+        ctx.font = `700 ${10 * dpr}px "JetBrains Mono", monospace`;
+        const ty = pr.y - size - 10 * dpr;
+        ctx.lineWidth = 3 * dpr; ctx.strokeStyle = '#fff'; ctx.strokeText('TOO FAR', pr.x, ty);
+        ctx.fillStyle = RED; ctx.fillText('TOO FAR', pr.x, ty);
+        ctx.restore();
+      }
       const engaged = w.targets.includes(e), cl = Math.max(3 * dpr, size * 0.35);
       ctx.globalAlpha = engaged || primary ? 0.95 : 0.55;
       this.stroke(ctx, RED, engaged ? 1.7 : 1.1, () => {
