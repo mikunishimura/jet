@@ -54,3 +54,12 @@ test('surge: accelerating again brings it back up; charging builds toward the ne
   const charged = cruise(c, 2, 1, 1);
   assert.ok(charged > quiet + 0.2 && charged < 1, `charging: ${charged.toFixed(2)}`);
 });
+
+test('surge: the wind settles with the engine after a Mach increase, but only a bit', () => {
+  const s = new EngineSurge();
+  s.kick();
+  assert.equal(s.windGain, 1);
+  cruise(s, 14);
+  assert.ok(Math.abs(s.windGain - ENGINE_SURGE.windFloor) < 0.03, `wind settles: ${s.windGain.toFixed(2)}`);
+  assert.ok(s.windGain > s.gain, 'quieter, but less than the engine');
+});

@@ -28,4 +28,6 @@ export class EngineSurge {
   }
 
   get gain() { return this.cfg.floor + (1 - this.cfg.floor) * this.level; }
+  /** the wind follows the same curve, gentler */
+  get windGain() { return this.cfg.windFloor + (1 - this.cfg.windFloor) * this.level; }
 }

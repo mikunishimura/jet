@@ -103,7 +103,8 @@ export class Audio {
     this.wind = this.loopNoise();
     this.windFilter = ctx.createBiquadFilter(); this.windFilter.type = 'highpass'; this.windFilter.frequency.value = 1500;
     this.windGain = ctx.createGain(); this.windGain.gain.value = 0;
-    this.wind.connect(this.windFilter); this.windFilter.connect(this.windGain); this.windGain.connect(this.engineBus);
+    this.windSurge = ctx.createGain();   // the surge settles the wind too (gentler than the engine)
+    this.wind.connect(this.windFilter); this.windFilter.connect(this.windGain); this.windGain.connect(this.windSurge); this.windSurge.connect(this.engineBus);
 
     // barrier riser
     this.riser = ctx.createOscillator(); this.riser.type = 'sawtooth'; this.riser.frequency.value = 120;
@@ -189,6 +190,7 @@ export class Audio {
     const sdt = this.lastUpdate === undefined ? 0 : Math.min(0.1, t - this.lastUpdate);
     this.lastUpdate = t;
     this.driveGain.gain.setTargetAtTime(this.surge.update(sdt, speed01, charge), t, 0.05);
+    this.windSurge.gain.setTargetAtTime(this.surge.windGain, t, 0.05);
     this.osc1.frequency.setTargetAtTime(45 + speed01 * 90 + (throttle ? 12 : 0), t, k);
     this.osc2.frequency.setTargetAtTime(45.6 + speed01 * 91 + (throttle ? 12 : 0), t, k);
     const air = this.air;

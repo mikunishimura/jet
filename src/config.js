@@ -325,7 +325,8 @@ export const BLOOM = {
 // and settles to a quieter cruise a few seconds later. A relative gain on the
 // engine only (not wind / effects), on top of the user's volume.
 export const ENGINE_SURGE = {
-  floor: 0.35,          // cruise gain once settled (~ -9 dB)
+  floor: 0.35,          // engine cruise gain once settled (~ -9 dB)
+  windFloor: 0.6,       // wind settles too, but only a bit (~ -4.4 dB)
   hold: 2.0,            // s at full after a Mach increase / launch
   settle: 2.6,          // s time constant of the glide down to cruise
   rise: 0.25,           // s time constant back up when you accelerate
