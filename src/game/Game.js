@@ -640,9 +640,12 @@ export class Game {
     this.hazards.update(dt, p, this.difficulty || 0);
     this.watchLine(dt);
 
+    // enemies move BEFORE the guns aim: the jet already moved this frame, so aiming at
+    // last frame's enemy positions was off by the jet's travel per frame (~130 m at
+    // Mach 40), sideways whenever the nose wasn't pointed at the target
+    this.enemies.update(dt);
     this.weapons.update(dt, p.alive ? ctl : {});
     if (p.alive && ctl.flares) this.counter.deploy(); // manual only: defence is flying (break turns)
-    this.enemies.update(dt);
     this.projectiles.update(dt);
     this.counter.update(dt);
     this.pickups.update(dt);

@@ -243,3 +243,41 @@ test('spread fire: more targets, faster fire, capped', async () => {
   assert.ok(gunRate(3) > gunRate(2) && gunRate(2) > 1);
   assert.equal(gunRate(10), gunRate(W.multiMax));
 });
+
+test('the gun hits where you aim, wherever the nose points (real frame order, hypersonic)', async () => {
+  const { Weapons } = await import('../src/combat/Weapons.js');
+  const { Projectiles } = await import('../src/combat/Projectiles.js');
+  const { Player } = await import('../src/game/Player.js');
+  const { TIERS } = await import('../src/config.js');
+  const hitRate = (offNoseDeg) => {
+    const player = new Player(() => {}); player.seedTurbulence(1);
+    const s = player.speedSys; s.engaged = true; s.tier = 3; s.speed = TIERS[2].speed; // 8 km/s
+    const W0 = { origin: { x: 0, z: 0 }, collide: () => null, crossedTriggers: () => [] };
+    let hits = 0;
+    const a = offNoseDeg * DEG;  // enemy sits this far off the nose, 900 m out, holding station
+    const e = { alive: true, name: 'UFO', radius: 17, hp: 1e9, maxHp: 1e9, rv: new THREE.Vector3(), vel: new THREE.Vector3(), acc: new THREE.Vector3(),
+      pos: new THREE.Vector3(-Math.sin(a) * 900, player.pos.y, -Math.cos(a) * 900), damage() { hits++; } };
+    const g = { frame: 0, attract: false, player, scene: new THREE.Scene(), enemies: { list: [e] }, world: { origin: { x: 0, z: 0 }, collide: () => null },
+      particles: { normal: { emit() {}, burst() {} }, vector: { ring() {} } }, audio: { gunshot() {}, lockOn() {}, lockTick() {}, click() {}, explosion() {} },
+      hud: { toast() {} }, fx: { explosionNear() {} }, onEnemyHit() {},
+      jet: { hardpoints: { gun: [{}, {}], rail: [{}, {}] }, hardpoint: (hp, p, out) => out.copy(p.pos) },
+      rig: { aimDir: new THREE.Vector3(), aimOffset: new THREE.Vector3() } };
+    g.weapons = new Weapons(g); g.projectiles = new Projectiles(g);
+    const W = g.weapons; let fired = 0;
+    const fb = W.fireBullet.bind(W); W.fireBullet = () => { fired++; fb(); };
+    for (let i = 0; i < 90; i++) {           // 1.5 s, in Game.loop order
+      g.frame++;
+      player.update(DT, base2, W0);
+      e.vel.copy(player.vel).add(e.rv); e.pos.addScaledVector(e.vel, DT);   // enemies.update
+      g.rig.aimDir.subVectors(e.pos, player.pos).normalize();             // perfect mouse aim
+      W.doomed.clear(); W.lockState.clear();
+      W.update(DT, {});
+      g.projectiles.update(DT);
+    }
+    return hits / Math.max(1, fired);
+  };
+  const base2 = { left: false, right: false, throttle: true, throttleTap: false, brake: false, up: false, down: false };
+  const ahead = hitRate(0), away = hitRate(60);
+  assert.ok(ahead > 0.9, `nose on target: ${(ahead * 100).toFixed(0)}% hit`);
+  assert.ok(away > 0.9, `nose 60 deg away: ${(away * 100).toFixed(0)}% hit`);
+});

@@ -3,6 +3,11 @@
 // station (ahead/side/up offsets relative to the jet) and a critically damped
 // spring pulls it there; head-on attackers close at a fixed relative speed.
 // Dogfights read the same at tier I and at Mach 100.
+//
+// Each enemy keeps its OWN frame (F forward, R right), taken from the jet when
+// it appears and then fixed in the world. Its stations and passes are laid
+// out in that frame, so steering the jet never drags enemies back in front of
+// the nose: they stay where they are and you aim at them with the mouse.
 import * as THREE from 'three';
 import { ufoMesh, droneMesh, fighterMesh } from './meshes.js';
 import { explosion } from '../render/Particles.js';
@@ -28,6 +33,9 @@ class Enemy {
     this.flash = 0;
     this.leaving = false;
     this.lockAngle = 9; this.dist = 1e9;
+    // world-fixed frame (see header): where "ahead" and "right" are for this enemy
+    this.F = game.player.flatForward.clone();
+    this.R = game.player.right.clone();
     // body materials that can flash white when hit (labMaterial's uFlash)
     this.flashMats = [];
     mesh.traverse((o) => { if (o.material?.uniforms?.uFlash) this.flashMats.push(o.material); });
@@ -48,7 +56,7 @@ class Enemy {
       this.jinkUp = (Math.random() * 2 - 1) * J.up * k;
     }
     side += this.jinkSide || 0; alt += this.jinkUp || 0;
-    _st.copy(p.pos).addScaledVector(p.flatForward, ahead).addScaledVector(p.right, side);
+    _st.copy(p.pos).addScaledVector(this.F, ahead).addScaledVector(this.R, side);
     // altitudes are authored relative to the player's flight line (26 m base)
     _st.y = Math.max(12, alt - 26 + p.pos.y, this.avoidY || 0);
     const acc = _v.subVectors(_st, this.pos).multiplyScalar(w * w).addScaledVector(this.rv, -2 * w);
@@ -59,7 +67,7 @@ class Enemy {
   rel() {
     const p = this.game.player;
     _v.subVectors(this.pos, p.pos);
-    return { ahead: _v.dot(p.flatForward), side: _v.dot(p.right), dist: _v.length() };
+    return { ahead: _v.dot(this.F), side: _v.dot(this.R), dist: _v.length() };
   }
   /** look ~0.6 s ahead; if terrain is in the way, climb over it */
   avoidTerrain(dt) {
@@ -100,7 +108,7 @@ class Enemy {
     if (v.lengthSq() < 1) v.copy(p.forward);
     const yawBefore = this.mesh.rotation.y;
     this.mesh.lookAt(_v.copy(this.pos).sub(v));
-    const lateral = this.vel.clone().sub(p.vel).dot(p.right);
+    const lateral = this.vel.clone().sub(p.vel).dot(this.R);
     this.mesh.rotateZ(Math.max(-0.9, Math.min(0.9, -lateral * bankScale)));
     return yawBefore;
   }
@@ -193,7 +201,7 @@ export class Drone extends Enemy {
       const t = this.age * 2.2 + this.phase;
       const targetSide = this.kamikaze ? 0 : this.slot * 40 + Math.sin(t) * 60;
       const lat = (targetSide - r.side) * 2.2;
-      _v.copy(p.flatForward).multiplyScalar(-700).addScaledVector(p.right, lat);
+      _v.copy(this.F).multiplyScalar(-700).addScaledVector(this.R, lat);
       _v.y = ((this.kamikaze ? p.pos.y : p.pos.y + 14 + this.slot * 6) - this.pos.y) * 2;
       this.rv.lerp(_v, 1 - Math.exp(-3 * dt));
       if (r.ahead < -80) { this.mode = 'chase'; this.chaseSide = (Math.random() - 0.5) * 300; }
@@ -256,7 +264,7 @@ export class Fighter extends Enemy {
     if (this.age > 34) this.leaving = true;
     if (this.mode === 'joust') {
       const lat = (Math.sin(this.age * 0.8 + this.phase) * 120 - r.side) * 0.9;
-      _v.copy(p.flatForward).multiplyScalar(-900).addScaledVector(p.right, lat);
+      _v.copy(this.F).multiplyScalar(-900).addScaledVector(this.R, lat);
       _v.y = (p.pos.y + 34 - this.pos.y);
       this.rv.lerp(_v, 1 - Math.exp(-2 * dt));
       if (r.ahead < 2700 && r.ahead > 500 && this.salvoFired < 2) {
@@ -277,8 +285,8 @@ export class Fighter extends Enemy {
     this.faceVelocity(true, 0.004);
     if (this.mode !== 'joust') {
       // keep nose pointing forward-ish (same direction as player) while dogfighting
-      this.mesh.lookAt(_v.copy(this.pos).sub(p.flatForward).sub(_d.subVectors(this.vel, p.vel).multiplyScalar(0.004)));
-      this.mesh.rotateZ(-_d.dot(p.right) * 0.6);
+      this.mesh.lookAt(_v.copy(this.pos).sub(this.F).sub(_d.subVectors(this.vel, p.vel).multiplyScalar(0.004)));
+      this.mesh.rotateZ(-_d.dot(this.R) * 0.6);
     }
     const b = this.mesh.userData.burner;
     b.scale.z = 0.8 + Math.random() * 0.5;
