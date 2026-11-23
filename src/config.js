@@ -324,7 +324,6 @@ export const WEAPONS = {
     time: 0.75,            // s of tracking per target
     margin: 5 * DEG,       // aim error allowed around the target's own angular size (auto-aim off)
     autoMargin: 6 * DEG,   // ... with auto-aim on: keep the enemy inside this ring while it moves
-    noseCone: 45 * DEG,    // locks only build on targets this close to the NOSE: commit your flight path
     precise: 2.5 * DEG,    // mean tracking error under this: a kill missile; above: a missile it can dodge
     grace: 0.3,            // s the crosshair may slip off before progress drains
     drain: 1.2,            // progress / s lost after the grace period

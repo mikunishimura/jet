@@ -220,6 +220,13 @@ export class HUD {
           this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(AIM.autoAim ? WEAPONS.lock.autoMargin : WEAPONS.lock.margin) * focal, 0, Math.PI * 2); });
           ctx.setLineDash([]);
         }
+        // aimed at an enemy the gun can't reach yet: say so (otherwise nothing seems to happen)
+        const pa = w0.assisted ? w0.primary : null;
+        if (pa && pa.dist > WEAPONS.minigun.range * 1.05) {
+          ctx.save(); ctx.textAlign = 'center';
+          this.label(ctx, `out of range · ${(pa.dist / 1000).toFixed(1)} km`, ap.x, ap.y + Math.tan(AIM.assistCone) * focal * 0.35 + 14 * dpr, INK2);
+          ctx.restore();
+        }
         // crit ring: solid red while the target sits on center (2x damage)
         const pt = w0.assisted ? w0.primary : null, onCrit = pt && pt.aimErr <= WEAPONS.aimQuality.crit;
         this.stroke(ctx, onCrit ? RED : INK2, onCrit ? 2 : 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.max(4 * dpr, Math.tan(WEAPONS.aimQuality.crit) * focal), 0, Math.PI * 2); });
@@ -298,8 +305,6 @@ export class HUD {
         });
         ctx.restore();
         this.label(ctx, `${Math.round(e.dist)} m`, pr.x - size, pr.y + size + 13 * dpr, RED);
-        // missile locks need the nose: say so when it's the only thing missing
-        if (e.noseAngle > WEAPONS.lock.noseCone && e.dist < WEAPONS.lockRange) this.label(ctx, 'nose → lock', pr.x - size, pr.y + size + 26 * dpr, INK2);
       }
       // hairline hp
       ctx.fillStyle = 'rgba(255,59,48,0.25)'; ctx.fillRect(pr.x - size, pr.y - size - 5 * dpr, size * 2, 1.5 * dpr);

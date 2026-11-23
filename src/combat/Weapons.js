@@ -5,9 +5,8 @@
 //     crosshair and in gun range, leading its motion, in bursts that never
 //     overheat. How hard it hits is up to your aim: on center is a critical
 //     hit (2×), the edge of the cone does 0.3× (aimDamage, WEAPONS.aimQuality)
-//   * keep an enemy inside the lock ring (lock.autoMargin) for lock.time AND
-//     keep it within lock.noseCone of the jet's nose, and the lock lands. A
-//     precise lock (mean error under lock.precise) sends a kill missile; a
+//   * keep an enemy inside the lock ring (lock.autoMargin) for lock.time and
+//     the lock lands (aim only, the nose doesn't matter). A precise lock (mean error under lock.precise) sends a kill missile; a
 //     sloppy one sends a missile the enemy may dodge (WEAPONS.evade)
 //   * flares are manual (F): defence is flying (break turns, Countermeasures)
 // MANUAL (setting off): LMB / J hold = gun + lock-on, release = kill missiles;
@@ -136,8 +135,6 @@ export class Weapons {
       e.lockAngle = ang; e.dist = d;
       e.angRadius = Math.atan((e.radius * 1.2) / dv);
       e.aimErr = Math.max(0, ang - e.angRadius);                       // aim quality: error beyond its own size
-      _a.subVectors(e.pos, p.pos);
-      e.noseAngle = Math.acos(Math.max(-1, Math.min(1, _a.dot(p.forward) / (d || 1)))); // missile locks need the nose
       if (ang < WEAPONS.lockCone && d < WEAPONS.lockRange) this.locks.push(e);
     }
     // a target with a kill missile on the way is as good as dead: work on the others first
@@ -242,7 +239,6 @@ export class Weapons {
     const cands = [];
     for (const e of this.detected) {
       if (e.dist > WEAPONS.lockRange || this.doomed.has(e)) continue;
-      if (e.noseAngle > L.noseCone) continue;   // point the jet roughly at it: locks need commitment
       cands.push({ e, err: e.aimErr });
     }
     const cfg = AIM.autoAim ? { ...L, margin: L.autoMargin } : L;

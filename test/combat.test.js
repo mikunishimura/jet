@@ -206,21 +206,15 @@ test('lock: the mean tracking error decides precise (kill) vs loose', () => {
   assert.ok(lb && lb.meanErr > L.precise, 'inside the 6 deg ring but sloppy');
 });
 
-test('lock: only on targets within the nose cone', async () => {
+test('lock: aim alone locks, wherever the nose points', async () => {
   const { Weapons } = await import('../src/combat/Weapons.js');
   const player = { alive: true, pos: new THREE.Vector3(), forward: new THREE.Vector3(0, 0, -1), vel: new THREE.Vector3() };
-  const mk = (x, z) => ({ alive: true, pos: new THREE.Vector3(x, 0, z), radius: 6, name: 'DRONE' });
-  const ahead = mk(0, -800), side = mk(800, -200);   // ~76 deg off the nose
-  const g = { player, audio: { lockOn() {}, lockTick() {}, click() {} }, hud: { toast() {} }, enemies: { list: [ahead, side] },
-    rig: { aimDir: new THREE.Vector3(0, 0, -1), aimOffset: new THREE.Vector3() } };
+  const side = { alive: true, pos: new THREE.Vector3(800, 0, -200), radius: 6, name: 'DRONE' };   // ~76 deg off the nose
+  const g = { player, audio: { lockOn() {}, lockTick() {}, click() {} }, hud: { toast() {} }, enemies: { list: [side] },
+    rig: { aimDir: new THREE.Vector3(800, 0, -200).normalize(), aimOffset: new THREE.Vector3() } };
   const w = new Weapons(g);
-  // aim straight at the side target: the crosshair is on it, but the nose isn't
-  g.rig.aimDir.set(800, 0, -200).normalize();
-  for (let t = 0; t < 2; t += DT) { w.acquire(); w.updateLocks(DT); }
-  assert.ok(!w.lockState.get(side), 'crosshair on it, nose away: no lock progress');
-  g.rig.aimDir.set(0, 0, -1);
   for (let t = 0; t < L.time + 0.1; t += DT) { w.acquire(); w.updateLocks(DT); }
-  assert.ok(w.doomed.has(ahead) || w.lockState.get(ahead)?.locked, 'in front of the nose: locks');
+  assert.ok(w.doomed.has(side) || w.lockState.get(side)?.locked, 'crosshair on it: locks');
 });
 
 test('analog sticks (touch): half deflection settles at half bank, keys still go full', async () => {
