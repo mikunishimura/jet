@@ -5,6 +5,7 @@ import { captureAltitude } from './hostile.js';
 import { LineWatch } from './LineWatch.js';
 import { Intensity } from './Intensity.js';
 import { Combo } from './Combo.js';
+import { Bloom } from '../combat/Bloom.js';
 import { resolveFlag } from '../core/flags.js';
 import { Space } from '../space/Space.js';
 import { Settings } from '../core/Settings.js';
@@ -81,6 +82,7 @@ export class Game {
     this.ambientBands = new Float32Array(AMBIENT.eq.bands);
     this.ambient = new AmbientLayer(this);
     this.player = new Player((type, e) => this.onPlayerEvent(type, e));
+    this.bloom = new Bloom();   // gun platform steadiness: real spread + reticle size
     this.aim = new Aim();
     // mouse aim: capture the pointer when the player clicks into the game
     renderer.domElement.addEventListener('mousedown', () => { if (this.state === 'playing') this.input.requestLock(renderer.domElement); });
@@ -230,6 +232,7 @@ export class Game {
     this.lineWatch = new LineWatch();
     this.intensity = new Intensity();
     this.combo = new Combo();
+    this.bloom?.reset();
     this.impacts = 0;
     this.difficulty = 0;
     this.player.reset();
@@ -324,12 +327,14 @@ export class Game {
       }
       case 'damage':
         this.breakCombo();
+        if (e.source !== 'impact') this.bloom.hit(e.amount);
         this.fx.hurt(e.amount);
         this.audio.hit(e.amount);
         if (e.amount >= 10 && e.source !== 'impact') this.hud.toast(`HIT −${Math.round(e.amount)}`, 'danger');
         break;
       case 'impact': {
         this.impacts++;               // any contact spoils a line-breaker dodge
+        this.bloom.hit(e.hard ? 0 : 6, e.hard);
         if (e.hard) this.breakCombo();
         this.fx.impact(e.hard);
         this.audio.impact(e.hard);
@@ -633,6 +638,7 @@ export class Game {
     if (this.flagsPending) this.syncFlags();
     if (this.state === 'playing' && p.alive && !this.attract) this.combo.update(dt);
     p.update(dt, ctl, this.world);
+    this.bloom.update(dt, { forward: p.forward, speed01: p.speed / TIERS[TIERS.length - 1].speed, bank: p.steer, pitch: p.vstick, hostility: p.hostility });
     this.rebaseIfNeeded();
     const ox = this.world.origin.x, oz = this.world.origin.z;
     const absX = p.pos.x + ox, absZ = p.pos.z + oz;

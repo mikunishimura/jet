@@ -184,62 +184,83 @@ export class HUD {
     const focal = H / (2 * Math.tan((cam.fov * DEG) / 2));
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
-    // --- flight-path marker: where the JET is going (circle with wings)
+    // --- flight-path marker: where the JET is going (circle with wings). Quiet: it's not for shooting
     const fp = this.project(_w.copy(p.pos).addScaledVector(p.forward, 900), cam);
     if (!fp.behind) {
-      const r = 6 * dpr;
-      this.stroke(ctx, INK, 1.4, () => {
+      const r = 5 * dpr;
+      ctx.globalAlpha = 0.5;
+      this.stroke(ctx, INK2, 1.1, () => {
         ctx.beginPath(); ctx.arc(fp.x, fp.y, r, 0, Math.PI * 2);
         ctx.moveTo(fp.x - r, fp.y); ctx.lineTo(fp.x - r * 2.4, fp.y);
         ctx.moveTo(fp.x + r, fp.y); ctx.lineTo(fp.x + r * 2.4, fp.y);
         ctx.moveTo(fp.x, fp.y - r); ctx.lineTo(fp.x, fp.y - r * 1.8);
       });
+      ctx.globalAlpha = 1;
     }
-    // --- crosshair: where SHOTS go (mouse aim). Red when the gun assist leads a target.
+    // --- reticle: where SHOTS go (the mouse). A dot and four short ticks at the
+    // radius of the real bullet spread (Bloom): it tightens when the jet is
+    // steady and opens up with speed, turns, bank, buffet, recoil and hits.
+    // Ink at rest, red while the gun is firing. Everything else around it only
+    // appears when it means something.
     const w0 = g.weapons;
     const ap = this.project(w0.aimPoint(_w), cam);
     if (!ap.behind) {
-      const col = w0.assisted ? RED : INK, gap = 5 * dpr, len = 7 * dpr;
-      this.stroke(ctx, col, 1.6, () => {
+      const bl = g.bloom?.value ?? 0;
+      const spread = g.bloom ? g.bloom.spread(WEAPONS.minigun.spread) : WEAPONS.minigun.spread;
+      const rT = Math.min(64 * dpr, Math.max(7 * dpr, Math.tan(spread * 3) * focal));
+      this.reticleR = this.reticleR === undefined ? rT : this.reticleR + (rT - this.reticleR) * Math.min(1, this.frameDt * 18);
+      const r = this.reticleR, tick = (4 + 2 * bl) * dpr;
+      const firing = w0.firing, col = firing ? RED : INK;
+      const pt = w0.assisted ? w0.primary : null, onCrit = !!pt && pt.aimErr <= WEAPONS.aimQuality.crit;
+      ctx.globalAlpha = firing ? 0.9 : 0.6;
+      this.stroke(ctx, col, 1.2, () => {
         ctx.beginPath();
-        ctx.moveTo(ap.x - gap - len, ap.y); ctx.lineTo(ap.x - gap, ap.y);
-        ctx.moveTo(ap.x + gap, ap.y); ctx.lineTo(ap.x + gap + len, ap.y);
-        ctx.moveTo(ap.x, ap.y - gap - len); ctx.lineTo(ap.x, ap.y - gap);
-        ctx.moveTo(ap.x, ap.y + gap); ctx.lineTo(ap.x, ap.y + gap + len);
+        ctx.moveTo(ap.x - r, ap.y); ctx.lineTo(ap.x - r - tick, ap.y);
+        ctx.moveTo(ap.x + r, ap.y); ctx.lineTo(ap.x + r + tick, ap.y);
+        ctx.moveTo(ap.x, ap.y - r); ctx.lineTo(ap.x, ap.y - r - tick);
+        ctx.moveTo(ap.x, ap.y + r); ctx.lineTo(ap.x, ap.y + r + tick);
       });
-      ctx.fillStyle = col; ctx.fillRect(ap.x - dpr, ap.y - dpr, 2 * dpr, 2 * dpr);
-      // hit marker: diagonal ticks for a confirmed hit, red and wider on a kill
-      const hm = this.hitMark, age = t - hm.t, life = hm.kill ? 0.32 : 0.14;
+      ctx.globalAlpha = 1;
+      // center dot; on a crit (target dead center, 2x) it grows a thin red ring
+      ctx.fillStyle = onCrit ? RED : col;
+      ctx.beginPath(); ctx.arc(ap.x, ap.y, (onCrit ? 1.8 : 1.3) * dpr, 0, Math.PI * 2); ctx.fill();
+      if (onCrit) this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, 4 * dpr, 0, Math.PI * 2); });
+      // hit marker: short diagonal ticks just outside the reticle (red and longer on a kill)
+      const hm = this.hitMark, age = t - hm.t, life = hm.kill ? 0.3 : 0.12;
       if (age >= 0 && age < life) {
-        const k = 1 - age / life, r0 = (hm.kill ? 11 : 8) * dpr, r1 = r0 + (hm.kill ? 11 : 7) * dpr * (0.6 + 0.4 * k);
+        const k = 1 - age / life, r0 = r + 3 * dpr, r1 = r0 + (hm.kill ? 9 : 5) * dpr * (0.6 + 0.4 * k);
         ctx.globalAlpha = Math.min(1, k * 1.6);
-        this.stroke(ctx, hm.kill ? RED : INK, hm.kill ? 2.4 : 1.8, () => {
+        this.stroke(ctx, hm.kill ? RED : INK, hm.kill ? 2 : 1.4, () => {
           ctx.beginPath();
           for (const [sx, sy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) { ctx.moveTo(ap.x + sx * r0 * 0.7071, ap.y + sy * r0 * 0.7071); ctx.lineTo(ap.x + sx * r1 * 0.7071, ap.y + sy * r1 * 0.7071); }
         });
         ctx.globalAlpha = 1;
       }
-      if (w0.detected.length) {
-        // gun cone (where auto-fire opens up): a faint hairline
-        ctx.globalAlpha = 0.28;
-        this.stroke(ctx, w0.assisted ? RED : INK2, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(AIM.assistCone) * focal, 0, Math.PI * 2); });
-        ctx.globalAlpha = 1;
-        // the lock ring: keep an enemy inside it (dashed)
-        if (w0.holding || AIM.autoFire) {
-          ctx.setLineDash([3 * dpr, 4 * dpr]);
-          this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(AIM.autoAim ? WEAPONS.lock.autoMargin : WEAPONS.lock.margin) * focal, 0, Math.PI * 2); });
-          ctx.setLineDash([]);
+      // gun cone: only a faint dotted hint while an enemy is getting close to it (gone once firing)
+      if (!firing) {
+        let near = Infinity;
+        for (const e of w0.detected) if (e.dist < WEAPONS.minigun.range * 1.05) near = Math.min(near, e.aimErr ?? Infinity);
+        const cone = AIM.assistCone, k = 1 - (near - cone) / (cone * 0.8);
+        if (k > 0 && near < Infinity) {
+          ctx.globalAlpha = 0.22 * Math.min(1, k);
+          ctx.setLineDash([1.5 * dpr, 5 * dpr]);
+          this.stroke(ctx, INK2, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(cone) * focal, 0, Math.PI * 2); });
+          ctx.setLineDash([]); ctx.globalAlpha = 1;
         }
-        // aimed at an enemy the gun can't reach yet: say so (otherwise nothing seems to happen)
-        const pa = w0.assisted ? w0.primary : null;
-        if (pa && pa.dist > WEAPONS.minigun.range * 1.05) {
-          ctx.save(); ctx.textAlign = 'center';
-          this.label(ctx, `out of range · ${(pa.dist / 1000).toFixed(1)} km`, ap.x, ap.y + Math.tan(AIM.assistCone) * focal * 0.35 + 14 * dpr, INK2);
-          ctx.restore();
-        }
-        // crit ring: solid red while the target sits on center (2x damage)
-        const pt = w0.assisted ? w0.primary : null, onCrit = pt && pt.aimErr <= WEAPONS.aimQuality.crit;
-        this.stroke(ctx, onCrit ? RED : INK2, onCrit ? 2 : 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.max(4 * dpr, Math.tan(WEAPONS.aimQuality.crit) * focal), 0, Math.PI * 2); });
+      }
+      // the lock ring only while a lock is building
+      let building = 0; for (const st of w0.lockState.values()) if (!st.locked) building = Math.max(building, st.p);
+      if (building > 0) {
+        ctx.globalAlpha = 0.45;
+        ctx.setLineDash([3 * dpr, 4 * dpr]);
+        this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.arc(ap.x, ap.y, Math.tan(AIM.autoAim ? WEAPONS.lock.autoMargin : WEAPONS.lock.margin) * focal, 0, Math.PI * 2); });
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+      }
+      // aimed at an enemy the gun can't reach yet: say so, small
+      if (pt && pt.dist > WEAPONS.minigun.range * 1.05) {
+        ctx.save(); ctx.textAlign = 'center'; ctx.globalAlpha = 0.75;
+        this.label(ctx, `out of range ${(pt.dist / 1000).toFixed(1)} km`, ap.x, ap.y + r + tick + 14 * dpr, INK2);
+        ctx.restore();
       }
     }
     // hint until the mouse is captured
@@ -256,11 +277,13 @@ export class HUD {
       if (!ref.behind) {
         const rad = Math.max(16 * dpr, Math.tan(s.tolerance) * focal * 0.98);
         ctx.setLineDash(s.inWindow ? [] : [4 * dpr, 5 * dpr]);
-        this.stroke(ctx, s.inWindow ? INK : RED, 1.2, () => { ctx.beginPath(); ctx.arc(ref.x, ref.y, rad, 0, Math.PI * 2); });
+        ctx.globalAlpha = g.weapons.firing ? 0.3 : 0.55;   // steps back while you're shooting
+        this.stroke(ctx, s.inWindow ? INK : RED, 1, () => { ctx.beginPath(); ctx.arc(ref.x, ref.y, rad, 0, Math.PI * 2); });
         ctx.setLineDash([]);
         // barrier charge as an arc around the ring
         const chg = chargeDisplay(s.charge);
-        if (chg > 0.005) this.stroke(ctx, INK, 2.5, () => { ctx.beginPath(); ctx.arc(ref.x, ref.y, rad + 5 * dpr, -Math.PI / 2, -Math.PI / 2 + chg * Math.PI * 2); });
+        if (chg > 0.005) this.stroke(ctx, INK, 2, () => { ctx.beginPath(); ctx.arc(ref.x, ref.y, rad + 4 * dpr, -Math.PI / 2, -Math.PI / 2 + chg * Math.PI * 2); });
+        ctx.globalAlpha = 1;
       }
     }
 
@@ -297,18 +320,8 @@ export class HUD {
     this.drawThreats(ctx, W, H, dpr, t);
     this.drawBreakers(ctx, cam, W, H, dpr, focal, t);
 
-    // --- spread fire: a hairline from the crosshair to every enemy the gun is working on
     const w = g.weapons;
-    if (w.firing && w.targets.length > 1 && !ap.behind) {
-      ctx.globalAlpha = 0.35;
-      for (const e of w.targets) {
-        const pr = this.project(e.pos, cam);
-        if (pr.behind) continue;
-        this.stroke(ctx, RED, 1, () => { ctx.beginPath(); ctx.moveTo(ap.x, ap.y); ctx.lineTo(pr.x, pr.y); });
-      }
-      ctx.globalAlpha = 1;
-    }
-    // --- detection: rounded red boxes
+    // --- detection: thin red corner brackets (bolder on what the gun is working on)
     for (const e of w.detected) {
       const pr = this.project(e.pos, cam);
       if (pr.behind || pr.x < 0 || pr.x > W || pr.y < 0 || pr.y > H) { this.edgeChevron(ctx, e.pos, cam, W, H); continue; }
@@ -316,37 +329,32 @@ export class HUD {
       const locked = w.locks.includes(e), primary = w.primary === e;
       // a kill missile is on its way: say so (the gun leaves it to the missile meanwhile)
       if (w.doomed.has(e)) { ctx.save(); ctx.textAlign = 'center'; this.label(ctx, '◆ kill missile', pr.x, pr.y - size - 12 * dpr, RED); ctx.restore(); }
-      const rr = Math.min(size * 0.45, 8 * dpr);
-      this.stroke(ctx, RED, primary ? 2.2 : locked ? 1.6 : 1.1, () => { ctx.beginPath(); ctx.roundRect(pr.x - size, pr.y - size, size * 2, size * 2, rr); });
-      if (primary) {
-        const k = size + 6 * dpr;
-        ctx.save(); ctx.translate(pr.x, pr.y); ctx.rotate(t * 2);
-        this.stroke(ctx, RED, 1.4, () => {
-          ctx.beginPath();
-          for (let i = 0; i < 4; i++) { const a0 = i * Math.PI / 2 + 0.25; ctx.moveTo(Math.cos(a0) * k * 1.15, Math.sin(a0) * k * 1.15); ctx.arc(0, 0, k * 1.15, a0, a0 + 0.5); }
-        });
-        ctx.restore();
-        this.label(ctx, `${Math.round(e.dist)} m`, pr.x - size, pr.y + size + 13 * dpr, RED);
-      }
-      // hp bar: what's left (red), what you just took off (ink, drains after it), the rest (faint)
+      const engaged = w.targets.includes(e), cl = Math.max(3 * dpr, size * 0.35);
+      ctx.globalAlpha = engaged || primary ? 0.95 : 0.55;
+      this.stroke(ctx, RED, engaged ? 1.7 : 1.1, () => {
+        ctx.beginPath();
+        for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+          const cx = pr.x + sx * size, cy = pr.y + sy * size;
+          ctx.moveTo(cx - sx * cl, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy - sy * cl);
+        }
+      });
+      ctx.globalAlpha = 1;
+      if (primary) { ctx.globalAlpha = 0.7; this.label(ctx, `${Math.round(e.dist)} m`, pr.x - size, pr.y + size + 12 * dpr, RED); ctx.globalAlpha = 1; }
+      // hp bar (once it's been hit): what's left (red), what you just took off (ink, drains after it)
       const hpK = Math.max(0, e.hp / e.maxHp);
       e.hpGhost = e.hpGhost === undefined ? hpK : Math.max(hpK, e.hpGhost - this.frameDt * 0.9);
-      const by = pr.y - size - 6 * dpr, bh = 2.5 * dpr;
-      ctx.fillStyle = 'rgba(255,59,48,0.22)'; ctx.fillRect(pr.x - size, by, size * 2, bh);
-      ctx.fillStyle = INK; ctx.fillRect(pr.x - size, by, size * 2 * e.hpGhost, bh);
-      ctx.fillStyle = RED; ctx.fillRect(pr.x - size, by, size * 2 * hpK, bh);
+      if (e.hpGhost < 0.999) {
+        const by = pr.y - size - 5 * dpr, bh = 2 * dpr;
+        ctx.fillStyle = 'rgba(255,59,48,0.18)'; ctx.fillRect(pr.x - size, by, size * 2, bh);
+        ctx.fillStyle = INK; ctx.fillRect(pr.x - size, by, size * 2 * e.hpGhost, bh);
+        ctx.fillStyle = RED; ctx.fillRect(pr.x - size, by, size * 2 * hpK, bh);
+      }
       // missile lock-on ring: charges around the target while you track it (slow, then fast)
       const ls = w.lockState.get(e);
       if (ls) {
         const R = size * 1.25 + 10 * dpr;
         if (ls.locked) {
-          this.stroke(ctx, RED, 2.6, () => { ctx.beginPath(); ctx.arc(pr.x, pr.y, R, 0, Math.PI * 2); });
-          ctx.save(); ctx.translate(pr.x, pr.y); ctx.rotate(-t * 1.5);
-          this.stroke(ctx, RED, 2, () => {
-            ctx.beginPath();
-            for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2; ctx.moveTo(Math.cos(a) * (R + 9 * dpr), Math.sin(a) * (R + 9 * dpr)); ctx.lineTo(Math.cos(a) * (R + 2 * dpr), Math.sin(a) * (R + 2 * dpr)); }
-          });
-          ctx.restore();
+          this.stroke(ctx, RED, 1.8, () => { ctx.beginPath(); ctx.arc(pr.x, pr.y, R, 0, Math.PI * 2); });
           ctx.save(); ctx.textAlign = 'center'; this.label(ctx, 'lock', pr.x, pr.y - R - 7 * dpr, RED); ctx.restore();
         } else {
           const f = lockDisplay(ls.p);
@@ -355,7 +363,7 @@ export class HUD {
           ctx.globalAlpha = ls.out > 0 ? 0.55 : 1;
           // solid: a precise lock so far (kill missile); dashed: loose (it may dodge)
           if ((ls.meanErr ?? 0) > WEAPONS.lock.precise) ctx.setLineDash([5 * dpr, 4 * dpr]);
-          if (f > 0.003) this.stroke(ctx, RED, 3, () => { ctx.beginPath(); ctx.arc(pr.x, pr.y, R, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); });
+          if (f > 0.003) this.stroke(ctx, RED, 2, () => { ctx.beginPath(); ctx.arc(pr.x, pr.y, R, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); });
           ctx.setLineDash([]);
           ctx.globalAlpha = 1;
         }
@@ -406,8 +414,9 @@ export class HUD {
     const hot = t - tk.crit < 0.3 || t - tk.kill < 0.5;
     ctx.save(); ctx.textAlign = 'left'; ctx.lineJoin = 'round';
     ctx.globalAlpha = Math.min(1, (0.9 - age) / 0.3);
-    ctx.font = `800 ${15 * pop * dpr}px "JetBrains Mono", monospace`;
-    const txt = `+${Math.round(tk.value)}`, x = ap.x + 20 * dpr, y = ap.y - 12 * dpr;
+    ctx.font = `800 ${13 * pop * dpr}px "JetBrains Mono", monospace`;
+    const off = (this.reticleR ?? 8 * dpr) + 10 * dpr;   // just outside the reticle, whatever its size
+    const txt = `+${Math.round(tk.value)}`, x = ap.x + off, y = ap.y - off * 0.6;
     ctx.lineWidth = 3.5 * dpr; ctx.strokeStyle = '#fff'; ctx.strokeText(txt, x, y);
     ctx.fillStyle = hot ? RED : INK; ctx.fillText(txt, x, y);
     ctx.restore();

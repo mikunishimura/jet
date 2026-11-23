@@ -300,6 +300,26 @@ export const AIM = {
   manualCone: 14 * DEG,     // auto-aim off: classic assist
 };
 
+// Reticle bloom (src/combat/Bloom.js): how steady the gun platform is, 0 = rock
+// steady .. 1 = all over the place. It widens the real bullet spread
+// (minigun.spread x (1 + spreadK x bloom)) and the reticle shows exactly that.
+export const BLOOM = {
+  speed: 0.18,          // at top speed (scaled by speed / top speed)
+  turn: 0.55,           // at turnFull rad/s of flight-direction change
+  turnFull: 0.6,
+  bank: 0.15,           // full stick bank
+  pitch: 0.12,          // full stick climb / dive
+  hostile: 0.6,         // hostile band buffet (Player.hostility)
+  shot: 0.1,            // recoil per round (sustained fire settles around 0.2)
+  recoilMax: 0.3,
+  hit: 1 / 30,          // per point of damage taken (kick)
+  impact: 0.7,          // terrain contact kick
+  rise: 14,             // 1/s toward a wider target (fast)
+  settle: 3.5,          // 1/s back to steady
+  recoilDecay: 6,       // 1/s
+  spreadK: 5,           // spread multiplier at full bloom
+};
+
 export const WEAPONS = {
   // heavier, slower rounds (was 26/s × 6 dmg); the barrels cool and unjam fast
   minigun: { rate: 11, speed: 11000, damage: 14, spread: 0.004, heatPerShot: 0.011, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 3500, // reaches anything that comes to fight (UFOs arrive from 3.4 km)

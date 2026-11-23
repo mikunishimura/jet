@@ -329,7 +329,10 @@ export class Weapons {
       // no assist: converge on the crosshair ray
       _dir.copy(this.aimPoint(_v)).sub(origin).normalize();
     }
-    _dir.x += (Math.random() - 0.5) * W.spread * 2; _dir.y += (Math.random() - 0.5) * W.spread * 2; _dir.z += (Math.random() - 0.5) * W.spread * 2;
+    // dispersion: tight when the jet is steady, wide when it's turning, buffeted or hit (Bloom; the reticle shows it)
+    const sp = g.bloom ? g.bloom.spread(W.spread) : W.spread;
+    g.bloom?.shot();
+    _dir.x += (Math.random() - 0.5) * sp * 2; _dir.y += (Math.random() - 0.5) * sp * 2; _dir.z += (Math.random() - 0.5) * sp * 2;
     _dir.normalize();
     const vel = _dir.clone().multiplyScalar(W.speed).add(p.vel);
     const b = g.projectiles.bullet('player', origin, vel, W.damage * mult, 0x2a2d31, W.range / W.speed);
