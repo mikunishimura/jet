@@ -189,18 +189,18 @@ export class Audio {
     // in vacuum it keeps its body (no air needed) and only the hiss thins out
     const I = this.ion;
     if (I) {
-      const f0 = 34 + speed01 * 46 + (throttle ? 4 : 0);
+      const f0 = 27 + speed01 * 36 + (throttle ? 3 : 0);     // deep: ~27 Hz idle .. ~66 Hz flat out
       I.hum.frequency.setTargetAtTime(f0, t, 0.15);
-      I.humGain.gain.setTargetAtTime(on * (0.09 + 0.03 * speed01), t, 0.15);
-      for (const o of I.pads) o.frequency.setTargetAtTime(f0 * 4, t, 0.15);   // two octaves over the hum: where speakers play
-      I.padFilter.frequency.setTargetAtTime(320 + speed01 * 1700 + charge * 1400 + (throttle ? 180 : 0), t, 0.12);
-      I.padGain.gain.setTargetAtTime(on * (0.12 + 0.03 * speed01 + 0.04 * charge), t, 0.12);
-      const wf = (480 + speed01 * 1100 + charge * 500) * (braking ? 0.85 : 1);
+      I.humGain.gain.setTargetAtTime(on * (0.13 + 0.04 * speed01), t, 0.15);
+      for (const o of I.pads) o.frequency.setTargetAtTime(f0 * 4, t, 0.15);   // two octaves over the hum (~110-260 Hz): body speakers still play
+      I.padFilter.frequency.setTargetAtTime(230 + speed01 * 1100 + charge * 1100 + (throttle ? 120 : 0), t, 0.12);
+      I.padGain.gain.setTargetAtTime(on * (0.15 + 0.03 * speed01 + 0.04 * charge), t, 0.12);
+      const wf = (340 + speed01 * 760 + charge * 380) * (braking ? 0.85 : 1);
       I.whine.frequency.setTargetAtTime(wf, t, 0.2);
       I.whine5.frequency.setTargetAtTime(wf * 1.5, t, 0.2);
-      I.whineGain.gain.setTargetAtTime(on * (0.022 + 0.022 * speed01 + 0.02 * charge), t, 0.2);
-      I.hissFilter.frequency.setTargetAtTime(1800 + speed01 * 3200, t, 0.15);
-      I.hissGain.gain.setTargetAtTime(on * (0.05 + 0.07 * speed01 + (throttle ? 0.02 : 0)) * (0.45 + 0.55 * air), t, 0.15);
+      I.whineGain.gain.setTargetAtTime(on * (0.018 + 0.018 * speed01 + 0.016 * charge), t, 0.2);
+      I.hissFilter.frequency.setTargetAtTime(1200 + speed01 * 2200, t, 0.15);
+      I.hissGain.gain.setTargetAtTime(on * (0.045 + 0.06 * speed01 + (throttle ? 0.015 : 0)) * (0.45 + 0.55 * air), t, 0.15);
     }
     this.windGain.gain.setTargetAtTime(on * speed01 * speed01 * 0.18 * air, t, k);
     this.windFilter.frequency.setTargetAtTime(1200 + speed01 * 3000, t, k);
