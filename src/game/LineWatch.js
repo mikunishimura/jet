@@ -42,7 +42,8 @@ export class LineWatch {
       return null;
     }
     if (this.held >= patience && this.flown >= c.firstAfter) {
-      const out = { kind: this.kind, rate: this.w0, pitch: this.p0 };
+      // straight: don't extrapolate the gust wander, put it dead ahead
+      const out = { kind: this.kind, rate: this.kind === 'straight' ? 0 : this.w0, pitch: this.p0 };
       this.anchor(heading, pitch);
       return out;
     }

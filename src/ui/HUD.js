@@ -117,6 +117,7 @@ export class HUD {
       `<span class="big">M${(s.speed * MACH_FACTOR).toFixed(2)}</span> <span class="d">${s.engaged ? s.current.name.toLowerCase() : 'idle'}</span>\n` +
       `<span class="d">tier </span>[${tiers}] ${s.current.roman}\n` +
       `<span class="d">chg  </span>[${bar(chg, 20)}] ${String(Math.round(chg * 100)).padStart(3)}%\n` +
+      (g.combo?.stacks ? `<span class="d">cmb  </span>[${bar(g.combo.fill, 20)}] <b>×${g.combo.mult.toFixed(2).replace(/\.?0+$/, '')}</b>\n` : '') +
       `<span class="d">&gt;</span> ${status}<i class="cursor"></i>`);
 
     // hull

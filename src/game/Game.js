@@ -1,8 +1,10 @@
 // Orchestrates systems, the frame loop, game state, director, scoring.
 import * as THREE from 'three';
-import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV, AMBIENT, FLAGS, SPACE, HOSTILE, BREAKER } from '../config.js';
+import { TIERS, WORLD, DIRECTOR, PALETTE, MACH_FACTOR, FLIGHT, ALTITUDE, WORLD_SCALE, JUICE, NEAR_MISS, AIM, FOV, AMBIENT, FLAGS, SPACE, HOSTILE, BREAKER, COMBO } from '../config.js';
 import { captureAltitude } from './hostile.js';
 import { LineWatch } from './LineWatch.js';
+import { Intensity } from './Intensity.js';
+import { Combo } from './Combo.js';
 import { resolveFlag } from '../core/flags.js';
 import { Space } from '../space/Space.js';
 import { Settings } from '../core/Settings.js';
@@ -225,7 +227,11 @@ export class Game {
     this.syncFlags(true); // a new flight always lands pending flag changes
     this.world.reset(seed);
     this.hazards.reset();
+    this.hazards.onBreakerPassed = (b) => this.onBreakerPassed(b);
     this.lineWatch = new LineWatch();
+    this.intensity = new Intensity();
+    this.combo = new Combo();
+    this.impacts = 0;
     this.difficulty = 0;
     this.player.reset();
     this.ambient?.reset();
@@ -238,7 +244,7 @@ export class Game {
     this.counter.reset();
     this.particles.normal.clear(); this.particles.vector.clear();
     this.autopilot = new Autopilot(this);
-    this.stats = { time: 0, fromSpawn: 0, kills: 0, killScore: 0, gateScore: 0, gates: 0, nearMisses: 0, missScore: 0, maxTier: 1, milestone: 0 };
+    this.stats = { time: 0, fromSpawn: 0, kills: 0, killScore: 0, gateScore: 0, gates: 0, nearMisses: 0, missScore: 0, evadeScore: 0, maxTier: 1, milestone: 0 };
     this.lastMiss = -9;
     this.director = { wave: DIRECTOR.firstWave, pickup: 14 };
     this.deathTimer = 0;
@@ -273,7 +279,7 @@ export class Game {
 
   get score() {
     const s = this.stats;
-    return Math.round(s.fromSpawn * 0.1 / WORLD_SCALE + s.time * 5 + s.killScore + s.gateScore + s.missScore);
+    return Math.round(s.fromSpawn * 0.1 / WORLD_SCALE + s.time * 5 + s.killScore + s.gateScore + s.missScore + s.evadeScore);
   }
 
   /** silhouette rim width is in drawing-buffer pixels */
@@ -318,11 +324,14 @@ export class Game {
         break;
       }
       case 'damage':
+        this.breakCombo();
         this.fx.hurt(e.amount);
         this.audio.hit(e.amount);
         if (e.amount >= 10 && e.source !== 'impact') this.hud.toast(`HIT −${Math.round(e.amount)}`, 'danger');
         break;
       case 'impact': {
+        this.impacts++;               // any contact spoils a line-breaker dodge
+        if (e.hard) this.breakCombo();
         this.fx.impact(e.hard);
         this.audio.impact(e.hard);
         const f = p.forward, pp = p.pos;
@@ -346,7 +355,8 @@ export class Game {
           if (e.material) e.material.uniforms.uPass.value = this.time; // the ring flashes white
           const s = p.speedSys;
           if (s.next) s.charge = Math.min(0.98, s.charge + 0.35);
-          this.stats.gateScore += 500;
+          const gm = this.addCombo(false, COMBO.weights.gate);
+          this.stats.gateScore += Math.round(500 * gm);
           this.fx.gate(++this.stats.gates); this.audio.gate();
           // shards: pieces of ink thrown up and out of the gate line
           const f = p.forward, pp = p.pos;
@@ -355,7 +365,7 @@ export class Game {
             vx: (Math.random() - 0.5) * 260, vy: 60 + Math.random() * 160, vz: (Math.random() - 0.5) * 260,
             life: 0.5 + Math.random() * 0.4, size: 2.5 + Math.random() * 2.5, color: PALETTE.ink, shape: SHAPE.SQUARE, drag: 2.2,
           }));
-          if (!this.attract) this.hud.toast(`${e.type === 'ring' ? 'BOOST RING' : 'SURVEY GATE'} +500 · BARRIER +35%`, 'good');
+          if (!this.attract) this.hud.toast(`${e.type === 'ring' ? 'BOOST RING' : 'SURVEY GATE'} +${Math.round(500 * gm)} · BARRIER +35%`, 'good');
         }
         break;
       case 'nearMiss': {
@@ -366,7 +376,8 @@ export class Game {
         const add = lo + (hi - lo) * e.closeness;
         if (s.next) s.charge = Math.min(0.98, s.charge + add);
         this.stats.nearMisses++;
-        this.stats.missScore += Math.round(100 + 300 * e.closeness);
+        const nm = this.addCombo(false, COMBO.weights.nearMiss);
+        this.stats.missScore += Math.round((100 + 300 * e.closeness) * nm);
         this.fx.nearMiss(e.closeness); this.audio.nearMiss(e.closeness);
         if (!this.attract) this.hud.toast(`NEAR MISS ${Math.round(e.clearance)} m · BARRIER +${Math.round(add * 100)}%`, 'good');
         break;
@@ -406,17 +417,53 @@ export class Game {
     if (this.attract) return;
     this.stats.kills++;
     const bonus = cause === 'crash' ? 1.5 : 1;
-    this.stats.killScore += Math.round(enemy.score * bonus * (1 + 0.25 * (this.player.speedSys.level - 1)));
-    this.hud.toast(cause === 'crash' ? `${enemy.name} CRASHED +${Math.round(enemy.score * bonus)}` : `${enemy.name} DOWN +${enemy.score}`, 'good');
+    const m = this.addCombo(true, enemy.name === 'DRONE' ? COMBO.weights.droneKill : COMBO.weights.kill);
+    const pts = Math.round(enemy.score * bonus * (1 + 0.25 * (this.player.speedSys.level - 1)) * m);
+    this.stats.killScore += pts;
+    this.hud.toast(`${enemy.name} ${cause === 'crash' ? 'CRASHED' : 'DOWN'} +${pts}${m > 1 ? ` ×${m}` : ''}`, 'good');
   }
 
   /** any player round / blast that damaged an enemy: the hit has to be felt */
   /** a fresh break turn inside the window: the missile(s) overshot */
   onMissileBeaten(n) {
     if (this.attract) return;
-    this.hud.toast(n > 1 ? `BREAK · ${n} MISSILES OVERSHOT` : 'BREAK · MISSILE OVERSHOT', 'good');
+    const m = this.addCombo(true, n * COMBO.weights.beat);
+    const pts = Math.round(250 * n * m);
+    this.stats.evadeScore += pts;
+    this.hud.toast(`BREAK · ${n > 1 ? `${n} MISSILES` : 'MISSILE'} OVERSHOT +${pts}`, 'good');
     this.audio.nearMiss(0.9);
     this.fx.hit(JUICE.near, 'EVADE'); this.fx.waveAtJet(0.45); this.fx.shake += 0.5;
+  }
+
+  /**
+   * A skill event for the combo. Returns the multiplier it scores at.
+   * charge: also charges the barrier (kills, evasions; gates / near misses charge on their own).
+   */
+  addCombo(charge = false, n = 1) {
+    if (this.attract) return 1;
+    const { mult, milestone } = this.combo.add(n);
+    const s = this.player.speedSys;
+    if (charge && s.next) s.charge = Math.min(0.98, s.charge + COMBO.charge * mult);
+    if (milestone) {
+      this.hud.toast(`COMBO ×${milestone}`, 'good');
+      this.audio.milestone();
+      this.fx.hit(JUICE.near, `×${milestone}`);
+    }
+    return mult;
+  }
+  breakCombo() {
+    if (this.attract || this.god) return;
+    const lost = this.combo.break();
+    if (lost >= 1.5) this.hud.toast(`COMBO LOST ×${lost}`, 'danger');
+  }
+
+  /** a line breaker flown past: clean if nothing hit you since it rose */
+  onBreakerPassed(b) {
+    if (this.attract || !this.player.alive || this.impacts !== b.impactsAtSpawn) return;
+    const m = this.addCombo(true, COMBO.weights.breaker);
+    const pts = Math.round(300 * m);
+    this.stats.evadeScore += pts;
+    this.hud.toast(`LINE BREAKER DODGED +${pts}`, 'good');
   }
 
   /** a loose lock: the target jinked out of the missile's way */
@@ -474,8 +521,16 @@ export class Game {
     const d = this.director;
     // radar: flying high brings waves sooner and more of them; low keeps you hidden
     const band = this.player.band;
-    d.wave -= dt / (band === 'high' ? ALTITUDE.waveIntervalHigh : band === 'low' ? ALTITUDE.waveIntervalLow : 1);
-    const maxE = Math.round(lerp(D.maxEnemiesStart, D.maxEnemiesEnd, diff)) + (band === 'high' ? ALTITUDE.extraEnemiesHigh : 0);
+    // intensity cycle: build -> peak -> breather, plus a dead-time guard
+    const it = this.intensity, rates = it.rates;
+    const pulse = it.update(dt, this.busy());
+    if (pulse.changed === 'peak') { this.hud.toast('CONTACT SURGE', 'danger'); this.audio.alarm(); }
+    else if (pulse.changed === 'breather') this.hud.toast('CLEAR · BREATHE', 'info');
+    this.hazards.pace = it.rates.events;
+    d.wave -= rates.wave * dt / (band === 'high' ? ALTITUDE.waveIntervalHigh : band === 'low' ? ALTITUDE.waveIntervalLow : 1);
+    const maxE = Math.round(lerp(D.maxEnemiesStart, D.maxEnemiesEnd, diff)) + (band === 'high' ? ALTITUDE.extraEnemiesHigh : 0) + rates.extraEnemies;
+    // nothing to react to for too long: bring enemies if there's room, else an obstacle now
+    if (pulse.force) { if (this.enemies.count < maxE) d.wave = 0; else this.hazards.forceNext(); }
     if (d.wave <= 0) {
       if (this.enemies.count < maxE) {
         const opts = [['drones', 1.0], ['ufo', s.time > 18 ? 0.7 + diff * 0.3 : 0], ['fighters', s.time > 35 ? 0.5 + diff : 0]];
@@ -502,10 +557,24 @@ export class Game {
     const p = this.player;
     if (this.attract || !p.alive || !p.speedSys.engaged) return;
     const d = this.difficulty || 0;
-    const course = this.lineWatch.update(dt, p.heading, p.pitch, lerp(BREAKER.patience[0], BREAKER.patience[1], d));
+    const course = this.lineWatch.update(dt, p.heading, p.pitch, lerp(BREAKER.patience[0], BREAKER.patience[1], d) * this.intensity.rates.patience);
     if (!course) return;
     const b = this.hazards.spawnBreaker(p, d, course);
-    if (b) this.audio.breaker();
+    if (b) { b.impactsAtSpawn = this.impacts; this.audio.breaker(); }
+  }
+
+  /** anything to react to right now? (the intensity director's dead-time guard) */
+  busy() {
+    const p = this.player;
+    if (this.weapons.detected.length || this.counter.threats.length || this.hazards.breakers.length) return true;
+    // an obstacle event coming up within ~4 s on your heading
+    const o = this.world.origin, ax = p.pos.x + o.x, az = p.pos.z + o.z, f = p.flatForward;
+    const horizon = Math.max(1, p.speed) * 4;
+    for (const it of this.hazards.items) {
+      const rx = it.centerX - ax, rz = it.centerZ - az, along = rx * f.x + rz * f.z;
+      if (along > -it.reach && along < horizon && Math.abs(rx * f.z - rz * f.x) < horizon * 0.35 + it.reach) return true;
+    }
+    return false;
   }
 
   rebaseIfNeeded() {
@@ -562,6 +631,7 @@ export class Game {
     } else this.aim.reset();
 
     if (this.flagsPending) this.syncFlags();
+    if (this.state === 'playing' && p.alive && !this.attract) this.combo.update(dt);
     p.update(dt, ctl, this.world);
     this.rebaseIfNeeded();
     const ox = this.world.origin.x, oz = this.world.origin.z;

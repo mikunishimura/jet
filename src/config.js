@@ -186,6 +186,42 @@ export const SPEED_LINES = { deadzone: 0.14, full: 0.45, tail: 400, sideShorten:
 // Near misses: pass an obstacle close without touching it and the barrier
 // charges. Clearance is surface-to-hull, in meters; the window widens with speed
 // (constant reaction time). Closer = more charge.
+// Intensity director (src/game/Intensity.js): the run breathes in cycles
+// instead of a flat drip. build -> peak -> breather -> build ...
+//   build:    normal rates
+//   peak:     waves come twice as fast (+1 enemy), path events 1.6x, breakers sooner
+//   breather: a few seconds with nothing new (what's already there stays)
+// Outside a breather, `maxIdle` seconds with nothing to react to (no enemy in
+// sight, no obstacle coming, no missile, no breaker) forces an event.
+export const INTENSITY = {
+  firstPeak: 18,               // s of flight before the first peak
+  build: [8, 12],              // s
+  peak: [12, 18],
+  breather: [3, 4.5],
+  rates: {
+    build:    { wave: 1,   events: 1,   patience: 1,   extraEnemies: 0 },
+    peak:     { wave: 2,   events: 1.6, patience: 0.7, extraEnemies: 1 },
+    breather: { wave: 0,   events: 0,   patience: Infinity, extraEnemies: 0 },
+  },
+  maxIdle: 3,                  // s with nothing to react to before the director forces something
+  forcedLead: 3.5,             // s ahead a forced obstacle event lands (it rises out of the ground)
+  guardFrom: 5,                // s after launch before the dead-time guard kicks in
+};
+
+// Combo (src/game/Combo.js): skill chains into a score multiplier. Kills, near
+// misses (and threaded forks), gates, missiles out-turned and line breakers
+// dodged each add a stack. `window` seconds with nothing and the chain is
+// gone; any hit on you (enemy fire or terrain) breaks it at once.
+export const COMBO = {
+  window: 4,                   // s an event keeps the chain alive
+  step: 0.2,                   // multiplier per stack: x1, x1.2, x1.4 ...
+  max: 4,                      // multiplier cap
+  // stacks per event: the harder the skill, the more it adds (drones fly into your gun: half)
+  weights: { kill: 1, droneKill: 0.5, nearMiss: 1, gate: 1, breaker: 2, beat: 2 },
+  charge: 0.08,                // barrier charge per combo event (x multiplier), on top of gates / near misses
+  announce: [2, 3, 4],         // multipliers that get a call-out
+};
+
 export const NEAR_MISS = {
   base: 90 * WORLD_SCALE,  // 1.8 km
   perSpeed: 0.05,          // + 50 ms of travel

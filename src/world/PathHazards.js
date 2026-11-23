@@ -12,7 +12,7 @@
 // and boost rings at your altitude.
 import { ChunkBuilder } from './ChunkBuilder.js';
 import { buildGate } from './features/gates.js';
-import { PATH, FLIGHT, WORLD_SCALE, SPACE, BREAKER, DEG, tierLevel } from '../config.js';
+import { PATH, FLIGHT, WORLD_SCALE, SPACE, BREAKER, INTENSITY, DEG, tierLevel } from '../config.js';
 import { SPACE_PATTERNS } from '../space/patterns.js';
 import { SpaceBuilder, BodyLibrary } from '../space/bodies.js';
 import { spaceMaterials } from '../space/materials.js';
@@ -107,17 +107,18 @@ export class PathHazards {
     this.items = [];
     this.breakers = [];   // live line breakers (HUD markers): absolute x, y, z, radius
     this.spawned = 0;
+    this.pace = 1;        // intensity director: event-rate multiplier (0 = hold events back)
   }
 
   update(dt, player, difficulty = 0) {
     if (!player.alive || !player.speedSys.engaged) return;
     const w = this.world;
     this.flown += player.speed * dt;
-    if (this.flown >= this.next) {
+    if (this.pace > 0 && this.flown >= this.next) {
       const orbit = this.inOrbit(player);
       const ok = orbit ? this.spawnOrbit(player, difficulty) : this.spawn(player, difficulty);
       const [easy, hard] = orbit ? SPACE.interval : PATH.interval;
-      const sec = (easy + (hard - easy) * difficulty) * (1 + (Math.random() * 2 - 1) * PATH.jitter);
+      const sec = (easy + (hard - easy) * difficulty) * (1 + (Math.random() * 2 - 1) * PATH.jitter) / this.pace;
       this.next = this.flown + (ok ? Math.max(300 * S, player.speed * sec) : 300 * S);
     }
     // drop structures that are well behind you
@@ -143,9 +144,16 @@ export class PathHazards {
     }
     // a breaker stays marked until you've passed it (or it's gone)
     const fy = player.forward?.y ?? 0;
-    if (this.breakers.length) this.breakers = this.breakers.filter((b) => this.items.includes(b.item)
-      && (b.x - ax) * f.x + (b.z - az) * f.z + (b.y - player.pos.y) * fy > -b.r);
+    if (this.breakers.length) this.breakers = this.breakers.filter((b) => {
+      if (!this.items.includes(b.item)) return false;
+      if ((b.x - ax) * f.x + (b.z - az) * f.z + (b.y - player.pos.y) * fy > -b.r) return true;
+      this.onBreakerPassed?.(b);   // flown past it: Game decides if it was a clean dodge
+      return false;
+    });
   }
+
+  /** the director wants something now: the next path event spawns this frame */
+  forceNext() { this.next = this.flown; this.forced = true; }
 
   /** shaders for the floating breaker rocks (compiled up front by Game.warmup) */
   breakerKit() {
@@ -239,14 +247,18 @@ export class PathHazards {
     const tier = player.speedSys.tier;
     const ax = player.pos.x + w.origin.x, az = player.pos.z + w.origin.z;
     const f = player.flatForward, r = player.right;
-    const ahead = Math.min(5200 * S, Math.max(1400 * S, w.viewDistance(tier) * 0.9));
+    // forced by the director (nothing going on): close by, and it rises out of the ground
+    const forced = this.forced; this.forced = false;
+    const ahead = forced ? Math.max(600 * S, player.speed * INTENSITY.forcedLead)
+      : Math.min(5200 * S, Math.max(1400 * S, w.viewDistance(tier) * 0.9));
     const cx = ax + f.x * ahead, cz = az + f.z * ahead;          // absolute
     const bx = cx / S, bz = cz / S;                              // base meters
     if (w.isReserved(bx, bz, 300)) return false;
     // don't stack on top of existing terrain
     if (w.collide(cx, FLIGHT.altitude, cz, 160 * S)) return false;
 
-    const kind = this.pickPattern(tier, difficulty);
+    let kind = this.pickPattern(tier, difficulty);
+    if (forced && kind === 'vista') kind = 'pair';   // forced: something to react to, not scenery
     const b = new ChunkBuilder(0, 0, 1);
     b.centerX = bx; b.centerZ = bz;
     const ctx = {
@@ -263,7 +275,9 @@ export class PathHazards {
       },
     };
     const reach = PATTERNS[kind](b, ctx);
-    this.items.push(w.addDynamic(b, reach));
+    const item = w.addDynamic(b, reach);
+    if (forced) { item.rise = { t: 0, dur: BREAKER.rise, floating: false, y: 0 }; item.group.scale.y = S * 0.02; }
+    this.items.push(item);
     this.lastKind = kind;
     return true;
   }
@@ -274,7 +288,9 @@ export class PathHazards {
     const tier = player.speedSys.tier;
     const ax = player.pos.x + w.origin.x, az = player.pos.z + w.origin.z, ay = player.pos.y;
     const f = player.flatForward, r = player.right;
-    const ahead = Math.min(5200 * S, Math.max(1400 * S, w.viewDistance(tier) * 0.9));
+    const forced = this.forced; this.forced = false;
+    const ahead = forced ? Math.max(600 * S, player.speed * INTENSITY.forcedLead)
+      : Math.min(5200 * S, Math.max(1400 * S, w.viewDistance(tier) * 0.9));
     const cx = ax + f.x * ahead, cz = az + f.z * ahead;
     if (w.collide(cx, ay, cz, 160 * S)) return false;        // a field rock is already there
     kind = kind || this.pickPattern(tier, difficulty, SPACE.patterns, SPACE_PATTERNS);
@@ -309,6 +325,7 @@ export class PathHazards {
     const reach = SPACE_PATTERNS[kind](b, ctx);
     const item = w.addDynamic(b, reach, sp.materials);
     item.orbit = true;
+    if (forced) { item.rise = { t: 0, dur: BREAKER.rise, floating: true, y: ay }; item.group.scale.setScalar(S * 0.02); item.group.position.y = ay * 0.98; }
     this.items.push(item);
     this.lastKind = kind;
     return true;
