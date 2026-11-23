@@ -336,7 +336,7 @@ export const ENGINE_SURGE = {
 
 export const WEAPONS = {
   // heavier, slower rounds (was 26/s × 6 dmg); the barrels cool and unjam fast
-  minigun: { rate: 11, speed: 11000, damage: 14, spread: 0.002, heatPerShot: 0.011, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 3500, // reaches anything that comes to fight (UFOs arrive from 3.4 km)
+  minigun: { rate: 11, speed: 11000, damage: 14, spread: 0.002, heatPerShot: 0.011, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 2200, // close in to fight: arriving enemies show TOO FAR until they are within reach
     // spread fire: every enemy in the aimed area (gun cone, in range) gets rounds in turn,
     // except the ones with a kill missile on the way. More targets, faster fire (heat per round
     // shrinks to match): x(1 + multiRate * (n - 1)), n capped at multiMax.
