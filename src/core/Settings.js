@@ -4,7 +4,7 @@ import { SKIN_IDS } from '../config.js';
 import { FLAG_DEFAULTS } from './flags.js';
 
 export const DEFAULTS = {
-  audio: { muted: false, master: 0.8, engine: 0.8, sfx: 0.9 },
+  audio: { muted: false, master: 0.8, engine: 0.8, sfx: 0.9, engineSound: 'auto' },
   controls: { autoThrottle: true, autoFire: true, autoAim: true, sensitivity: 1.0, invertY: false },
   view: { camera: 'chase', skin: SKIN_IDS[0], fovOffset: 0, renderScale: 1.0, showFps: false },
   fx: { intensity: 1.0, flashes: true, shake: 1.0, blur: 1.0 },
@@ -19,6 +19,7 @@ export const LIMITS = {
   'fx.intensity': [0, 1], 'fx.shake': [0, 1.5], 'fx.blur': [0, 1],
   'view.camera': ['chase', 'cockpit'],
   'view.skin': SKIN_IDS,
+  'audio.engineSound': ['auto', 'ion', 'jet'],
 };
 
 const KEY = 'jetlab.settings.v1';

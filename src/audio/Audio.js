@@ -4,6 +4,13 @@
 import { boostEvents } from '../render/Juice.js';
 import { tierLevel } from '../config.js';
 
+// Engine sound presets (settings: audio.engineSound; 'auto' follows the skin's `engine`):
+//   jet  the original: two detuned saw/square oscillators through a lowpass + a noise roar
+//   ion  a space drive: sub-bass hum, a detuned pad behind a slowly breathing resonant
+//        filter, a high ion whine with vibrato, and a swept plasma hiss instead of a roar
+// Both are built at init and crossfade (0.35 s) when you switch.
+export const ENGINE_PRESETS = ['jet', 'ion'];
+
 // Mach pops climb a major pentatonic scale: a clean run plays a rising melody.
 const PENTA = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
 
@@ -15,6 +22,17 @@ export class Audio {
     this.levels = { muted: false, master: 0.8, engine: 0.8, sfx: 0.9 };
     this.air = 1; // 1 = sea level .. 0 = vacuum (space flight): wind and roar fade, the engine goes muffled
     this.hostile = 0; // 0..1 hostile band: a low, throbbing structural rumble
+    this.engine = 'jet'; // active engine preset (ENGINE_PRESETS)
+  }
+
+  /** switch the engine sound preset (crossfades; safe before init) */
+  setEngine(name) {
+    if (!ENGINE_PRESETS.includes(name)) name = 'jet';
+    this.engine = name;
+    if (!this.ctx || !this.jetBus) return;
+    const t = this.ctx.currentTime;
+    this.jetBus.gain.setTargetAtTime(name === 'jet' ? 1 : 0, t, 0.12);
+    this.ionBus.gain.setTargetAtTime(name === 'ion' ? 1 : 0, t, 0.12);
   }
 
   /** user audio settings: { muted, master, engine, sfx } (0..1). Safe before init. */
@@ -54,20 +72,26 @@ export class Audio {
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
 
-    // engine: two detuned saws + roar noise
+    // each engine preset plays into its own bus; setEngine crossfades them
+    this.jetBus = ctx.createGain(); this.jetBus.gain.value = this.engine === 'jet' ? 1 : 0; this.jetBus.connect(this.engineBus);
+    this.ionBus = ctx.createGain(); this.ionBus.gain.value = this.engine === 'ion' ? 1 : 0; this.ionBus.connect(this.engineBus);
+
+    // --- jet preset: two detuned saws + roar noise
     this.engGain = ctx.createGain(); this.engGain.gain.value = 0;
     this.engFilter = ctx.createBiquadFilter(); this.engFilter.type = 'lowpass'; this.engFilter.frequency.value = 400; this.engFilter.Q.value = 2;
     this.osc1 = ctx.createOscillator(); this.osc1.type = 'sawtooth'; this.osc1.frequency.value = 55;
     this.osc2 = ctx.createOscillator(); this.osc2.type = 'square'; this.osc2.frequency.value = 55.7;
     const o2g = ctx.createGain(); o2g.gain.value = 0.4;
     this.osc1.connect(this.engFilter); this.osc2.connect(o2g); o2g.connect(this.engFilter);
-    this.engFilter.connect(this.engGain); this.engGain.connect(this.engineBus);
+    this.engFilter.connect(this.engGain); this.engGain.connect(this.jetBus);
     this.osc1.start(); this.osc2.start();
 
     this.roar = this.loopNoise();
     this.roarFilter = ctx.createBiquadFilter(); this.roarFilter.type = 'bandpass'; this.roarFilter.frequency.value = 600; this.roarFilter.Q.value = 0.7;
     this.roarGain = ctx.createGain(); this.roarGain.gain.value = 0;
-    this.roar.connect(this.roarFilter); this.roarFilter.connect(this.roarGain); this.roarGain.connect(this.engineBus);
+    this.roar.connect(this.roarFilter); this.roarFilter.connect(this.roarGain); this.roarGain.connect(this.jetBus);
+
+    this.buildIon(ctx);
 
     this.wind = this.loopNoise();
     this.windFilter = ctx.createBiquadFilter(); this.windFilter.type = 'highpass'; this.windFilter.frequency.value = 1500;
@@ -89,6 +113,40 @@ export class Audio {
     this.rumbleLfo.connect(lfoDepth); lfoDepth.connect(this.rumbleFilter.frequency); this.rumbleLfo.start();
     this.rumbleGain = ctx.createGain(); this.rumbleGain.gain.value = 0;
     this.rumble.connect(this.rumbleFilter); this.rumbleFilter.connect(this.rumbleGain); this.rumbleGain.connect(this.engineBus);
+  }
+
+  /**
+   * ion preset: a smooth, sci-fi drive. All of it rides speed / throttle / charge in update().
+   *  hum    sine sub-bass (the body)
+   *  pad    three detuned saws two octaves up, through a resonant lowpass whose cutoff
+   *         breathes with a slow LFO (the phasing "drive" texture)
+   *  whine  a high sine + its fifth with a gentle vibrato (the ion stream)
+   *  hiss   noise through a narrow bandpass swept by a slow LFO (plasma, not a roar)
+   */
+  buildIon(ctx) {
+    const I = this.ion = {};
+    const gain = (v, to) => { const g = ctx.createGain(); g.gain.value = v; if (to) g.connect(to); return g; };
+    const osc = (type, f) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; o.start(); return o; };
+    const lfo = (hz, depth, param) => { const o = osc('sine', hz), d = gain(depth); o.connect(d); d.connect(param); return o; };
+    // hum
+    I.humGain = gain(0, this.ionBus);
+    I.hum = osc('sine', 40); I.hum.connect(I.humGain);
+    // pad
+    I.padFilter = ctx.createBiquadFilter(); I.padFilter.type = 'lowpass'; I.padFilter.Q.value = 7; I.padFilter.frequency.value = 500;
+    I.padGain = gain(0, this.ionBus); I.padFilter.connect(I.padGain);
+    I.pads = [0, 7, -12].map((cents) => { const o = osc('sawtooth', 80); o.detune.value = cents; const g = gain(0.33, I.padFilter); o.connect(g); return o; });
+    I.padLfo = lfo(0.22, 160, I.padFilter.frequency);          // the filter breathes
+    // whine (with vibrato on both voices)
+    I.whineGain = gain(0, this.ionBus);
+    I.whine = osc('sine', 600); I.whine.connect(I.whineGain);
+    I.whine5 = osc('sine', 900); const w5 = gain(0.35, I.whineGain); I.whine5.connect(w5);
+    I.vib = lfo(5.2, 7, I.whine.detune); const v2 = gain(7); I.vib.connect(v2); v2.connect(I.whine5.detune);
+    // plasma hiss
+    I.hiss = this.loopNoise();
+    I.hissFilter = ctx.createBiquadFilter(); I.hissFilter.type = 'bandpass'; I.hissFilter.Q.value = 3.2; I.hissFilter.frequency.value = 2500;
+    I.hissGain = gain(0, this.ionBus);
+    I.hiss.connect(I.hissFilter); I.hissFilter.connect(I.hissGain);
+    I.hissLfo = lfo(0.37, 700, I.hissFilter.frequency);
   }
 
   loopNoise() {
@@ -127,6 +185,23 @@ export class Audio {
     this.engGain.gain.setTargetAtTime(on * (0.10 + speed01 * 0.06), t, k);
     this.roarFilter.frequency.setTargetAtTime(400 + speed01 * 1800, t, k);
     this.roarGain.gain.setTargetAtTime(on * (0.12 + speed01 * 0.2 + (throttle ? 0.08 : 0) - (braking ? 0.05 : 0)) * (0.35 + 0.65 * air), t, k);
+    // ion preset: rises smoothly with speed, swells with throttle and barrier charge;
+    // in vacuum it keeps its body (no air needed) and only the hiss thins out
+    const I = this.ion;
+    if (I) {
+      const f0 = 34 + speed01 * 46 + (throttle ? 4 : 0);
+      I.hum.frequency.setTargetAtTime(f0, t, 0.15);
+      I.humGain.gain.setTargetAtTime(on * (0.09 + 0.03 * speed01), t, 0.15);
+      for (const o of I.pads) o.frequency.setTargetAtTime(f0 * 4, t, 0.15);   // two octaves over the hum: where speakers play
+      I.padFilter.frequency.setTargetAtTime(320 + speed01 * 1700 + charge * 1400 + (throttle ? 180 : 0), t, 0.12);
+      I.padGain.gain.setTargetAtTime(on * (0.12 + 0.03 * speed01 + 0.04 * charge), t, 0.12);
+      const wf = (480 + speed01 * 1100 + charge * 500) * (braking ? 0.85 : 1);
+      I.whine.frequency.setTargetAtTime(wf, t, 0.2);
+      I.whine5.frequency.setTargetAtTime(wf * 1.5, t, 0.2);
+      I.whineGain.gain.setTargetAtTime(on * (0.022 + 0.022 * speed01 + 0.02 * charge), t, 0.2);
+      I.hissFilter.frequency.setTargetAtTime(1800 + speed01 * 3200, t, 0.15);
+      I.hissGain.gain.setTargetAtTime(on * (0.05 + 0.07 * speed01 + (throttle ? 0.02 : 0)) * (0.45 + 0.55 * air), t, 0.15);
+    }
     this.windGain.gain.setTargetAtTime(on * speed01 * speed01 * 0.18 * air, t, k);
     this.windFilter.frequency.setTargetAtTime(1200 + speed01 * 3000, t, k);
     this.riser.frequency.setTargetAtTime(110 + charge * charge * 900 * (0.6 + tier * 0.15), t, 0.05);

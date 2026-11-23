@@ -70,7 +70,7 @@ The first Mach change comes about 0.5 s after launch. `tierLevel()` maps any tie
 
 A terminal-style settings window: **O**, the `[ settings ]` buttons on the menu and death screens, or **Esc** mid-flight, which doubles as the pause screen. Changes apply live and persist in localStorage (`src/core/Settings.js`, values sanitized and clamped).
 
-- **Audio:** mute, master volume, engine & wind bus, effects bus.
+- **Audio:** mute, master volume, engine & wind bus, effects bus, **engine sound**: *match airframe* (default), *ion drive* or *classic jet*. The ion drive (the B-2's) is a space drive: a sub-bass hum, a detuned pad behind a slowly breathing resonant filter, a high ion whine with vibrato and a swept plasma hiss, all rising with speed and swelling with throttle and barrier charge. The classic jet is the original saw/square engine with its noise roar (the Lab Interceptor's). They crossfade live (`ENGINE_PRESETS`, `src/audio/Audio.js`).
 - **Controls:** mouse sensitivity, invert Y.
 - **View:** chase or cockpit camera, field-of-view offset (±15°), render scale (50–150 %, for performance), show FPS.
 - **Lab:** *space flight* feature flag (see below).
@@ -111,7 +111,7 @@ Add an orbital pattern in `src/space/patterns.js` and give it a weight in `SPACE
 Pick your airframe in **settings → hangar** (swaps live, remembered). Skins are defined in `src/render/skins.js`. Each one builds its geometry and returns its exhaust flames, contrail nozzles and gun/missile hardpoints, so weapons always fire from the right spots.
 
 - **Northrop B-2 Spirit** (default): one smooth lofted flying-wing surface. Every edge runs parallel to one of the two leading edges, as on the real aircraft: constant-chord outer wings, angled wingtip cuts and the double-W sawtooth trailing edge. The center body and engine fairings blend in, with flush cockpit windows, top intakes and exhaust trenches. Guns sit on the wing leading edges, missiles come from the bomb bays.
-- **Lab Interceptor**: the original white delta.
+- **Lab Interceptor**: the original white delta, with the classic jet engine sound (the B-2 has the ion drive; each skin names its `engine`).
 
 Add a skin by adding an entry to `SKINS` and its id to `SKIN_IDS` (`src/config.js`). The first id is the default.
 

@@ -13,6 +13,9 @@ export const SCHEMA = [
     { key: 'audio.muted', type: 'toggle', label: 'mute', hint: 'm' },
     { key: 'audio.master', type: 'range', label: 'master volume', min: 0, max: 1, step: 0.05, fmt: pct },
     { key: 'audio.engine', type: 'range', label: 'engine & wind', min: 0, max: 1, step: 0.05, fmt: pct },
+    { key: 'audio.engineSound', type: 'choice', label: 'engine sound', options: ['auto', 'ion', 'jet'],
+      labels: { auto: 'match airframe', ion: 'ion drive', jet: 'classic jet' },
+      title: 'match airframe: the b-2 gets the ion drive, the lab interceptor the classic jet' },
     { key: 'audio.sfx', type: 'range', label: 'effects', min: 0, max: 1, step: 0.05, fmt: pct },
   ] },
   { section: 'controls', items: [

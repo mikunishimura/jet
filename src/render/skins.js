@@ -110,6 +110,7 @@ export const SKINS = {
    */
   'b2-spirit': {
     name: 'northrop b-2 spirit',
+    engine: 'ion',       // engine sound preset (Audio ENGINE_PRESETS): the space-ish drive
     build(body) {
       const DARK = 0x3d444a, EDGE = 0xd9dde1, S = 7.8;  // dark slate; S = half-span (m)
       const geo = b2Surface(S);
@@ -150,6 +151,7 @@ export const SKINS = {
   /** The original lab interceptor: white delta, ink outlines, dark engine pods. */
   'lab-interceptor': {
     name: 'lab interceptor',
+    engine: 'jet',       // the original jet engine sound
     build(body) {
       const fus = new THREE.CylinderGeometry(0.95, 1.15, 9, 8, 1); fus.rotateX(Math.PI / 2);
       body.add(outlined(fus, 0xffffff));

@@ -6,6 +6,7 @@ import { LineWatch } from './LineWatch.js';
 import { Intensity } from './Intensity.js';
 import { Combo } from './Combo.js';
 import { Bloom } from '../combat/Bloom.js';
+import { SKINS } from '../render/skins.js';
 import { resolveFlag } from '../core/flags.js';
 import { Space } from '../space/Space.js';
 import { Settings } from '../core/Settings.js';
@@ -165,6 +166,8 @@ export class Game {
   applySettings() {
     const v = this.settings.values;
     this.audio.setLevels(v.audio);
+    // engine sound preset: picked, or the one that matches the airframe
+    this.audio.setEngine(v.audio.engineSound === 'auto' ? SKINS[v.view.skin]?.engine || 'jet' : v.audio.engineSound);
     AIM.sensitivity = AIM_BASE_SENSITIVITY * v.controls.sensitivity;
     AIM.invertY = v.controls.invertY;
     AIM.autoAim = v.controls.autoAim;
