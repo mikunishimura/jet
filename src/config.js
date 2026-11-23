@@ -317,7 +317,7 @@ export const BLOOM = {
   rise: 14,             // 1/s toward a wider target (fast)
   settle: 3.5,          // 1/s back to steady
   recoilDecay: 6,       // 1/s
-  spreadK: 5,           // spread multiplier at full bloom
+  spreadK: 4,           // spread multiplier at full bloom
 };
 
 // Engine surge (src/audio/EngineSurge.js): the engine is loud when the jet is
@@ -335,13 +335,14 @@ export const ENGINE_SURGE = {
 
 export const WEAPONS = {
   // heavier, slower rounds (was 26/s × 6 dmg); the barrels cool and unjam fast
-  minigun: { rate: 11, speed: 11000, damage: 14, spread: 0.004, heatPerShot: 0.011, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 3500, // reaches anything that comes to fight (UFOs arrive from 3.4 km)
+  minigun: { rate: 11, speed: 11000, damage: 14, spread: 0.002, heatPerShot: 0.011, cool: 1.9, coolDelay: 0.08, overheatLock: 0.5, range: 3500, // reaches anything that comes to fight (UFOs arrive from 3.4 km)
     // spread fire: every enemy in the aimed area (gun cone, in range) gets rounds in turn,
     // except the ones with a kill missile on the way. More targets, faster fire (heat per round
     // shrinks to match): x(1 + multiRate * (n - 1)), n capped at multiMax.
     multiRate: 0.35, multiMax: 4,
     // flak: a round bursts on hit and also damages enemies within `splash` m (share of its damage)
-    splash: 45, splashShare: 0.4 },
+    splash: 45, splashShare: 0.4,
+    fuse: 10 },             // proximity fuse: a round passing this close (m) to an enemy bursts on it
   missiles: { salvo: 4, stagger: 0.07, max: 8, reload: 1.4, speed: 750, accel: 900, turnRate: 4.2, damage: 70, splash: 70, life: 6 },
   // a hard lock is a kill: one hypersonic missile per locked target, out in a quick ripple
   // turnRate is high on purpose: at 5.2 km/s a slower turn means a 130 m circle around the target (it orbits, never hits)

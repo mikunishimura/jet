@@ -79,10 +79,21 @@ export function aimDamage(err, cone = AIM.autoCone, q = WEAPONS.aimQuality) {
 
 /**
  * Spread fire: every enemy in the aimed area the gun can reach, best aimed
- * first, minus the ones a kill missile is already taking care of. Pure.
+ * first. Including ones a kill missile is chasing: if you aim at an enemy,
+ * you always hit it and see the damage. Pure.
  */
-export function gunTargets(enemies, doomed, cone = AIM.assistCone, range = WEAPONS.minigun.range * 1.05) {
-  return enemies.filter((e) => e.alive && e.aimErr < cone && e.dist < range && !doomed.has(e)).sort((a, b) => a.aimErr - b.aimErr);
+export function gunTargets(enemies, cone = AIM.assistCone, range = WEAPONS.minigun.range * 1.05) {
+  return enemies.filter((e) => e.alive && e.aimErr < cone && e.dist < range).sort((a, b) => a.aimErr - b.aimErr);
+}
+
+/**
+ * Which target round number i goes to: every other round to targets[0] (the one
+ * closest to the crosshair), the rest in turn over the others. Pure.
+ */
+export function pickTarget(targets, i) {
+  const n = targets.length;
+  if (!n) return null;
+  return n === 1 || i % 2 === 0 ? targets[0] : targets[1 + ((i >> 1) % (n - 1))];
 }
 
 /** fire-rate multiplier for n targets in the aimed area */
@@ -150,11 +161,11 @@ export class Weapons {
       e.aimErr = Math.max(0, ang - e.angRadius);                       // aim quality: error beyond its own size
       if (ang < WEAPONS.lockCone && d < WEAPONS.lockRange) this.locks.push(e);
     }
-    // a target with a kill missile on the way is as good as dead: work on the others first
-    const rank = (e) => e.lockAngle + e.dist / 8000 + (this.doomed?.has(e) ? 10 : 0);
+    // what you aim at is what you're working on (a missile chasing it changes nothing)
+    const rank = (e) => e.lockAngle + e.dist / 8000;
     this.locks.sort((a, b) => rank(a) - rank(b));
     // sticky primary: keep the current target unless it leaves the cone
-    if (!this.primary || !this.primary.alive || !this.locks.includes(this.primary) || (this.doomed?.has(this.primary) && this.locks[0] !== this.primary)) this.primary = this.locks[0] || null;
+    if (!this.primary || !this.primary.alive || !this.locks.includes(this.primary)) this.primary = this.locks[0] || null;
     else if (this.locks[0] && this.locks[0] !== this.primary && this.locks[0].lockAngle < this.primary.lockAngle * 0.4) this.primary = this.locks[0];
     // while locking, the gun works on what you're locking, then on what isn't locked yet
     if (this.holding) {
@@ -163,7 +174,7 @@ export class Weapons {
       else if (this.primary && this.lockState.get(this.primary)?.locked) this.primary = this.locks.find((e) => !this.lockState.get(e)?.locked) || this.primary;
     }
     this.assisted = !!this.primary && this.primary.aimErr < AIM.assistCone;
-    this.targets = gunTargets(this.detected, this.doomed);
+    this.targets = gunTargets(this.detected);
   }
 
   /** fighting right now: the gun is firing, a lock is building, or missiles are leaving */
@@ -200,20 +211,23 @@ export class Weapons {
     // --- minigun
     if (this.overheated > 0) this.overheated -= dt;
     this.gunCooldown -= dt;
-    // auto: fire at whatever the auto-aim holds in range, in bursts that rest before overheating
+    // auto: fire at whatever is in the aimed area and in range, without pauses: aim at an
+    // enemy and the damage never stops (no heat, no rest between bursts in auto-fire)
     const auto = AIM.autoFire;
     const inRange = this.targets.length > 0;
-    if (this.heat > 0.88) this.rest = true; else if (this.heat < 0.3) this.rest = false;
-    const autoGun = auto && inRange && !this.rest;
+    this.rest = false;
+    const autoGun = auto && inRange;
     this.firing = (ctl.gun || autoGun) && this.overheated <= 0;
-    // barrels only cool when you let go of the trigger
+    // manual: barrels only cool when you let go of the trigger
     this.sinceFire = this.firing ? 0 : (this.sinceFire || 0) + dt;
-    if (this.sinceFire > W.coolDelay) this.heat = Math.max(0, this.heat - W.cool * dt * (this.overheated > 0 ? 1.6 : 1));
+    if (auto) this.heat = Math.max(0, this.heat - W.cool * dt);
+    else if (this.sinceFire > W.coolDelay) this.heat = Math.max(0, this.heat - W.cool * dt * (this.overheated > 0 ? 1.6 : 1));
     if (this.firing) {
       const k = gunRate(this.targets.length);   // more targets in the aimed area: the barrels spin faster
       while (this.gunCooldown <= 0) {
         this.gunCooldown += 1 / (W.rate * k);
         this.fireBullet();
+        if (auto) continue;                     // auto-fire never overheats
         this.heat += W.heatPerShot / k;
         if (this.heat >= 1) { this.heat = 1; this.overheated = W.overheatLock; g.audio.overheat(); g.hud.toast('GUN OVERHEAT', 'warn'); break; }
       }
@@ -303,9 +317,9 @@ export class Weapons {
     const g = this.game, p = g.player, W = WEAPONS.minigun;
     this.muzzleSide = this.muzzleSide === 1 ? -1 : 1;
     const origin = this.muzzle(this.muzzleSide);
-    // spread fire: rounds take turns over every enemy in the aimed area
-    const n = this.targets.length;
-    const t = n ? this.targets[this.rr++ % n] : null;
+    // spread fire: every other round goes to the enemy you're aiming at (closest to the
+    // crosshair: its damage never stalls), the rest take turns over the others in the area
+    const t = pickTarget(this.targets, this.rr++);
     // aim quality: the closer the crosshair is to the target, the harder each round hits
     const mult = t ? aimDamage(t.aimErr, AIM.assistCone) : 1;
     if (t) {
@@ -337,7 +351,7 @@ export class Weapons {
     const vel = _dir.clone().multiplyScalar(W.speed).add(p.vel);
     const b = g.projectiles.bullet('player', origin, vel, W.damage * mult, 0x2a2d31, W.range / W.speed);
     b.crit = mult > WEAPONS.aimQuality.full;
-    b.splash = W.splash; b.splashShare = W.splashShare;
+    b.splash = W.splash; b.splashShare = W.splashShare; b.fuse = W.fuse;
     g.audio.gunshot();
     // muzzle flash: bigger now that every round counts
     g.particles.normal.emit({ x: origin.x, y: origin.y, z: origin.z, rel: true, life: 0.06, size: 3.4, color: 0x15171a, shape: 1 });

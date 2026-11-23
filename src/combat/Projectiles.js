@@ -132,19 +132,18 @@ export class Projectiles {
       const prev = _a.copy(b.p).addScaledVector(b.rv, -dt); // sweep in the moving frame
       let dead = b.life <= 0;
       if (!dead && b.owner === 'player') {
-        const doomed = g.weapons?.doomed;
         for (const e of enemies) {
-          if (!e.alive || doomed?.has(e)) continue;   // locked-in: the kill missile has it, rounds fly on
+          if (!e.alive) continue;
           // sweep relative to the enemy (it moved this frame too, before this round was fired if
           // the round is new): fast or jinking targets can't slip between frames
           _v.copy(prev);
           if (kb) _v.addScaledVector(e.rv, dt);
-          if (segSphere(_v, b.p, e.pos, e.radius + 2)) {
+          if (segSphere(_v, b.p, e.pos, e.radius + 2 + (b.fuse || 0))) {   // + proximity fuse
             e.damage(b.damage, b.crit ? 'crit' : 'gun', b.p);
-            // flak: the burst also catches anything packed close (not targets a kill missile has)
+            // flak: the burst also catches anything packed close
             if (b.splash) {
               for (const o of enemies) {
-                if (o === e || !o.alive || doomed?.has(o)) continue;
+                if (o === e || !o.alive) continue;
                 if (o.pos.distanceTo(b.p) < b.splash + o.radius) o.damage(b.damage * b.splashShare, 'gun', o.pos);
               }
               if (Math.random() < 0.35) g.particles.vector.ring(b.p.x, b.p.y, b.p.z, 2, b.splash, 0.16, 0x15171a);

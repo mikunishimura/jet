@@ -228,12 +228,29 @@ test('analog sticks (touch): half deflection settles at half bank, keys still go
   assert.ok(Math.abs(v + 0.3) < 1e-9, 'reverses onto the new deflection');
 });
 
-test('spread fire: every enemy in the aimed area, best aimed first, minus the locked-in ones', async () => {
+test('spread fire: every enemy in the aimed area, best aimed first, including ones a missile is chasing', async () => {
   const { gunTargets } = await import('../src/combat/Weapons.js');
   const mk = (aimErr, dist = 800, alive = true) => ({ aimErr: aimErr * DEG, dist, alive });
-  const a = mk(1), b = mk(12), c = mk(6), far = mk(2, 5000), out = mk(30), doomedOne = mk(0.5), dead = mk(3, 800, false);
-  const t = gunTargets([a, b, c, far, out, doomedOne, dead], new Set([doomedOne]));
-  assert.deepEqual(t, [a, c, b]);
+  const a = mk(1), b = mk(11), c = mk(6), far = mk(2, 5000), out = mk(30), chased = mk(0.5), dead = mk(3, 800, false);
+  const t = gunTargets([a, b, c, far, out, chased, dead], 12 * DEG);
+  assert.deepEqual(t, [chased, a, c, b]);
+});
+
+test('aim at an enemy and the damage never pauses: auto-fire has no cool-down rests, a missile on it changes nothing', async () => {
+  const { Weapons } = await import('../src/combat/Weapons.js');
+  const e = { alive: true, pos: new THREE.Vector3(0, 0, -800), vel: new THREE.Vector3(), rv: new THREE.Vector3(), radius: 17, name: 'UFO' };
+  const missiles = [];
+  const g = { frame: 0, player: { alive: true, pos: new THREE.Vector3(), forward: new THREE.Vector3(0, 0, -1), vel: new THREE.Vector3(), right: new THREE.Vector3(1, 0, 0) },
+    enemies: { list: [e] }, projectiles: { missiles, bullet: () => ({}) }, audio: { lockOn() {}, lockTick() {}, click() {}, gunshot() {}, overheat() {} },
+    hud: { toast() {} }, particles: { normal: { emit() {} } },
+    jet: { hardpoints: { gun: [{}, {}], rail: [{}, {}] }, hardpoint: (hp, p, out) => out.copy(p.pos) },
+    rig: { aimDir: new THREE.Vector3(0, 0, -1), aimOffset: new THREE.Vector3() } };
+  const w = new Weapons(g);
+  w.updateLocks = () => {};                 // no missile launches in this test
+  w.doomed.add(e); missiles.push({ owner: 'player', kill: true, target: e });   // a kill missile is chasing it
+  let frames = 0, firing = 0;
+  for (let t = 0; t < 20; t += DT) { w.update(DT, {}); frames++; if (w.firing) firing++; }
+  assert.equal(firing, frames, `fired ${firing} of ${frames} frames`);
 });
 
 test('spread fire: more targets, faster fire, capped', async () => {
@@ -326,4 +343,14 @@ test('locked-in only while its kill missile flies: a spent missile hands the tar
 
 test('kill missiles hit fast, weaving targets (no orbiting)', () => {
   assert.ok(WEAPONS.lockedMissile.speed / WEAPONS.lockedMissile.turnRate < 20, 'turn circle under 20 m');
+});
+
+test('spread fire: the enemy closest to the crosshair gets every other round, the rest share the others', async () => {
+  const { pickTarget } = await import('../src/combat/Weapons.js');
+  const T = ['aimed', 'b', 'c', 'd', 'e'], count = {};
+  for (let i = 0; i < 1000; i++) { const t = pickTarget(T, i); count[t] = (count[t] || 0) + 1; }
+  assert.equal(count.aimed, 500);
+  for (const k of ['b', 'c', 'd', 'e']) assert.equal(count[k], 125);
+  assert.equal(pickTarget(['solo'], 7), 'solo');
+  assert.equal(pickTarget([], 0), null);
 });
